@@ -1,123 +1,123 @@
-# 作业批改系统
+# AI Exam Mark System
 
-一个基于 Next.js 和 Go 的作业批改系统，支持手写文字识别和自动评分。
+A homework marking system built with Next.js and Go, supporting handwritten text recognition and automatic scoring.
 
-## 功能特点
+## Features
 
-- 支持上传作业图片
-- 自动识别手写文字
-- 支持单栏和双栏布局的试卷
-- 实时预览和反馈
-- 响应式设计
+- Upload homework images
+- Automatic handwritten text recognition
+- Support for single-column and double-column exam layouts
+- Real-time preview and feedback
+- Responsive design
 
-## 技术栈
+## Tech Stack
 
-### 前端
+### Frontend
 - Next.js 14
 - React 18
 - TypeScript
 - Tailwind CSS
 - shadcn/ui
 
-### 后端
+### Backend
 - Go
-- Gin 框架
+- Gin Framework
 - Google Cloud Vision API
 - Gemini API
 
-## 本地开发
+## Local Development
 
-### 前置要求
+### Prerequisites
 
 - Node.js 18+
 - Go 1.20+
-- npm 或 yarn
-- Google Cloud 账号和凭证
+- npm or yarn
+- Google Cloud account and credentials
 
-### 安装步骤
+### Installation Steps
 
-1. 克隆仓库
+1. Clone the repository
 ```bash
 git clone https://github.com/yourusername/homework-marking.git
 cd homework-marking
 ```
 
-2. 安装前端依赖
+2. Install frontend dependencies
 ```bash
 npm install
 ```
 
-3. 安装后端依赖
+3. Install backend dependencies
 ```bash
 cd backend
 go mod download
 cd ..
 ```
 
-4. 配置环境变量
+4. Configure environment variables
 ```bash
-# 复制环境变量示例文件
+# Copy environment variable example files
 cp .env.example .env.local
 cp backend/.env.example backend/.env
 
-# 编辑环境变量文件，填入必要的配置
+# Edit the environment variable files with your configuration
 ```
 
-5. 配置 Google Cloud 凭证
-- 将你的 Google Cloud 服务账号密钥文件放在 `backend` 目录下
-- 更新 `backend/.env` 中的 `GOOGLE_APPLICATION_CREDENTIALS` 路径
+5. Configure Google Cloud credentials
+- Place your Google Cloud service account key file in the `backend` directory
+- Update the `GOOGLE_APPLICATION_CREDENTIALS` path in `backend/.env`
 
-6. 启动开发服务器
+6. Start development servers
 ```bash
-# 启动后端服务
+# Start backend service
 cd backend
 ./run_server.sh
 
-# 新开一个终端，启动前端服务
+# In a new terminal, start frontend service
 npm run dev
 ```
 
-访问 http://localhost:3000 查看应用
+Visit http://localhost:3000 to view the application
 
-## 部署
+## Deployment
 
-### 前端部署 (Vercel)
+### Frontend Deployment (Vercel)
 
-1. 在 Vercel 上创建新项目
-2. 导入 GitHub 仓库
-3. 配置环境变量
-4. 部署
+1. Create a new project on Vercel
+2. Import the GitHub repository
+3. Configure environment variables
+4. Deploy
 
-### 后端部署
+### Backend Deployment
 
-1. 准备服务器环境
-2. 配置环境变量
-3. 编译并运行后端服务
+1. Prepare server environment
+2. Configure environment variables
+3. Compile and run the backend service
 
-## 项目结构
+## Project Structure
 
 ```
 homework-marking/
-├── frontend/           # Next.js 前端应用
-│   ├── src/           # 源代码
-│   ├── public/        # 静态资源
-│   └── package.json   # 前端依赖配置
-├── backend/           # Go 后端服务
-│   ├── cmd/          # 主程序入口
-│   ├── handlers/     # 请求处理器
-│   ├── models/       # 数据模型
-│   └── services/     # 业务逻辑
-└── README.md         # 项目文档
+├── frontend/           # Next.js frontend application
+│   ├── src/           # Source code
+│   ├── public/        # Static assets
+│   └── package.json   # Frontend dependencies
+├── backend/           # Go backend service
+│   ├── cmd/          # Main program entry
+│   ├── handlers/     # Request handlers
+│   ├── models/       # Data models
+│   └── services/     # Business logic
+└── README.md         # Project documentation
 ```
 
-## 贡献指南
+## Contributing
 
-1. Fork 项目
-2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
-4. 推送到分支 (`git push origin feature/AmazingFeature`)
-5. 创建 Pull Request
+1. Fork the project
+2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
 
-## 许可证
+## License
 
-MIT License - 详见 LICENSE 文件 
+MIT License - See LICENSE file for details 
