@@ -38,4 +38,4 @@ echo "GIN_MODE=$GIN_MODE"
 
 # 启动应用
 echo "正在启动开发模式应用..."
-./resumeai 
+./homework-marking 

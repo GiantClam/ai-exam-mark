@@ -41,4 +41,4 @@ echo "PORT=$PORT"
 
 # 启动应用
 echo "正在启动应用..."
-./resumeai
+./homework-marking

@@ -554,119 +554,56 @@ func (c *VertexAIClient) GenerateContentStream(ctx context.Context, systemInstru
 	return iter, nil
 }
 
-// BuildResumeScreeningPrompt 构建简历筛选提示
-func BuildResumeScreeningPrompt(jobRequirements, industry string, resumeContents []string, resumeNames []string) (string, string) {
-	systemInstruction := fmt.Sprintf(`
-		你是一个%s行业的高级招聘专家，精通人才筛选。请基于以下招聘要求和行业，评估简历。
+// BuildHomeworkAnalysisPrompt 构建作业分析提示
+func BuildHomeworkAnalysisPrompt(homeworkType string, imageContent string) string {
+	var prompt string
+	switch homeworkType {
+	case "english":
+		prompt = fmt.Sprintf(`请分析这张英语作业图片，提取所有问题和答案。要求：
+1. 按照从左到右、从上到下的顺序识别
+2. 保持原始格式和编号
+3. 返回JSON格式，包含以下字段：
+   - questions: 问题列表
+   - answers: 答案列表
+   - feedback: 总体评价
 
-		招聘要求:
-		%s
+图片内容：
+%s`, imageContent)
+	case "chinese":
+		prompt = fmt.Sprintf(`请分析这张语文作业图片，提取所有问题和答案。要求：
+1. 按照从左到右、从上到下的顺序识别
+2. 保持原始格式和编号
+3. 返回JSON格式，包含以下字段：
+   - questions: 问题列表
+   - answers: 答案列表
+   - feedback: 总体评价
 
-		请分析以下简历，判断它是否符合招聘要求，并简要说明你的判断理由:
+图片内容：
+%s`, imageContent)
+	case "math":
+		prompt = fmt.Sprintf(`请分析这张数学作业图片，提取所有问题和答案。要求：
+1. 按照从左到右、从上到下的顺序识别
+2. 保持原始格式和编号
+3. 返回JSON格式，包含以下字段：
+   - questions: 问题列表
+   - answers: 答案列表
+   - feedback: 总体评价
 
-		请注意以下要求：
-		1. 筛选理由必须简洁，每个理由控制在50字以内
-		2. 使用要点式回答，便于快速阅读
-		3. 确保生成完整的JSON且不会因长度过长而被截断
+图片内容：
+%s`, imageContent)
+	default:
+		prompt = fmt.Sprintf(`请分析这张作业图片，提取所有问题和答案。要求：
+1. 按照从左到右、从上到下的顺序识别
+2. 保持原始格式和编号
+3. 返回JSON格式，包含以下字段：
+   - questions: 问题列表
+   - answers: 答案列表
+   - feedback: 总体评价
 
-		请以下面的JSON格式回复:
-		{
-		"passed": [
-			{"name": "简历文件名", "reason": "通过原因(50字以内)"}
-		],
-		"failed": [
-			{"name": "简历文件名", "reason": "不通过原因(50字以内)"}
-		]
-		}
-
-		注意：每份简历只能出现在passed或failed其中一个数组中，不能同时出现在两个数组中。请直接返回JSON，不要使用Markdown代码块，不要添加任何额外的解释。确保在返回的JSON中，name字段使用我提供的原始文件名。
-		
-		`, industry, jobRequirements)
-
-	prompt := ""
-	for i, content := range resumeContents {
-		filename := "未知文件名"
-		if i < len(resumeNames) {
-			filename = resumeNames[i]
-		}
-		prompt += fmt.Sprintf("\n简历内容 (文件名: %s):\n%s\n", filename, content)
+图片内容：
+%s`, imageContent)
 	}
-
-	return systemInstruction, prompt
-}
-
-// BuildInterviewQuestionsPrompt 构建面试题目生成提示
-func BuildInterviewQuestionsPrompt(jobRequirements, industry, resumeContent string, industryKeywords string) (string, string) {
-	industryKeywordsContent := "无特殊行业特性"
-	if industryKeywords != "" {
-		industryKeywordsContent = industryKeywords
-	}
-
-	systemInstruction := fmt.Sprintf(`
-	你是一个经验丰富的%s行业面试官。请根据以下招聘要求、行业特性和候选人简历，生成20个高质量的针对性面试问题，并提供简洁的参考答案。
-	
-	行业特性:
-	%s
-	
-	招聘要求:
-	%s
-	
-	请注意以下要求：
-	1. 答案必须简洁，每个答案控制在100-150字以内
-	2. 只提供关键点，避免冗长解释
-	3. 使用要点式回答，便于面试官快速参考
-	4. 确保生成完整的JSON且不会因长度过长而被截断
-	
-	请以下面的JSON格式回复:
-	{
-	  "questions": [
-		{"category": "问题类别", "question": "问题内容", "answer": "简洁的参考答案"},
-		...
-	  ]
-	}
-	
-	记住：直接返回JSON，不要使用Markdown代码块，不要添加任何额外的解释。确保JSON格式完整有效。
-	`, industry, industryKeywordsContent, jobRequirements)
-
-	prompt := fmt.Sprintf("\n候选人简历:\n%s\n", resumeContent)
-	return systemInstruction, prompt
-}
-
-// BuildInterviewSummaryPrompt 构建面试总结提示
-func BuildInterviewSummaryPrompt(jobRequirements, industry, interviewNotes string, industryKeywords string) (string, string) {
-	industryKeywordsContent := "无特殊行业特性"
-	if industryKeywords != "" {
-		industryKeywordsContent = industryKeywords
-	}
-
-	systemInstruction := fmt.Sprintf(`
-		你是一个经验丰富的%s行业的面试官。参考行业特性，通过面试记录，生成一份简洁的面试总结，提炼候选人的优劣势，给出是否录用的评价。
-		
-		行业特性:
-		%s
-		
-		请注意以下要求：
-		1. 所有评价必须简洁，避免冗长解释
-		2. 每项内容控制在50字以内
-		3. 使用要点式描述，便于快速阅读
-		4. 确保生成完整的JSON且不会因长度过长而被截断
-		
-		请以下面的JSON格式回复:
-		{
-		"overall": "总体评价(50字以内)",
-		"strengths": ["优势1", "优势2", ...],
-		"weaknesses": ["不足1", "不足2", ...],
-		"recommendation": "是否推荐录用及简要原因(50字以内)",
-		"furtherQuestions": ["需要进一步了解的问题1", "需要进一步了解的问题2", ...],
-		"riskPoints": ["风险点1", "风险点2", ...], 
-		"suggestions": ["建议1", "建议2", ...]
-		}
-
-		记住：直接返回JSON，不要使用Markdown代码块，不要添加任何额外的解释。确保JSON格式完整有效。
-		`, industry, industryKeywordsContent)
-
-	prompt := fmt.Sprintf("\n面试记录:\n%s\n", interviewNotes)
-	return systemInstruction, prompt
+	return prompt
 }
 
 // GenerateContentWithBinaryFile 使用Vertex AI分析二进制文件内容

@@ -1,164 +1,132 @@
-# AI Resume 后端服务
+# AI 作业批改系统后端服务
 
-这是一个基于Go语言和Google Cloud Vertex AI的HR助手系统后端服务，提供简历筛选、面试题生成和面试总结功能。
+这是一个基于 Google Vertex AI 的智能作业批改系统后端服务，支持英语、语文、数学等科目的作业批改。
 
 ## 功能特点
 
-- 支持多简历批量筛选
-- 智能生成针对候选人的面试题
-- 面试过程智能总结和评估
-- 使用Google Cloud Vertex AI的gemini-2.0-flash-001模型
-- 支持PostgreSQL和MySQL数据库
+- 支持多种作业类型（英语、语文、数学）
+- 使用 Google Vertex AI 进行智能分析
+- 提供详细的作业评价和反馈
+- 支持图片格式的作业上传
+- 提供模拟模式用于测试
+
+## 技术栈
+
+- Go 语言
+- Google Vertex AI (Gemini 模型)
+- PostgreSQL 数据库
+- Gin Web 框架
 
 ## 环境要求
 
-- Go 1.18+
-- Google Cloud 账号和相关权限
-- PostgreSQL数据库 (开发环境)
-- MySQL数据库 (生产环境)
+- Go 1.20 或更高版本
+- PostgreSQL 数据库
+- Google Cloud 账号和项目
+- 有效的 Google Cloud 凭证文件
 
-## 安装与配置
+## 快速开始
 
-1. 克隆代码库
+1. 克隆仓库：
 ```bash
-git clone https://github.com/GiantClam/homework_marking.git
-cd homework_marking/backend
+git clone https://github.com/GiantClam/ai-exam-mark.git
+cd ai-exam-mark/backend
 ```
 
-2. 安装依赖
+2. 安装依赖：
 ```bash
-go mod tidy
+go mod download
 ```
 
-3. 配置环境变量
-复制模板并创建自己的环境配置文件：
+3. 配置环境变量：
 ```bash
-# 开发环境配置
 cp .env.example .env
-
-# 生产环境配置
-cp .env.example .env.production
 ```
+然后编辑 `.env` 文件，填入必要的配置信息。
 
-然后编辑相应的配置文件，填入您的配置。
-
-开发环境配置示例 (.env)：
-```
-GOOGLE_CLOUD_PROJECT=your-project-id
-GOOGLE_CLOUD_LOCATION=us-central1
-GOOGLE_APPLICATION_CREDENTIALS=./your-credentials.json
-PORT=8080
-GIN_MODE=debug
-
-# 数据库配置 - 开发环境使用PostgreSQL
-DB_TYPE=postgres
-DB_HOST=localhost
-DB_PORT=5432
-DB_USER=postgres
-DB_PASSWORD=your-password
-DB_NAME=ai_resume
-DB_SSLMODE=disable
-```
-
-生产环境配置示例 (.env.production)：
-```
-GOOGLE_CLOUD_PROJECT=your-project-id
-GOOGLE_CLOUD_LOCATION=us-central1
-GOOGLE_APPLICATION_CREDENTIALS=./your-credentials.json
-PORT=8080
-GIN_MODE=release
-
-# 数据库配置 - 生产环境使用MySQL
-DB_TYPE=mysql
-DB_HOST=localhost
-DB_PORT=3306
-DB_USER=root
-DB_PASSWORD=your-mysql-password
-DB_NAME=ai_resume
-DB_CHARSET=utf8mb4
-```
-
-4. 将您的Google Cloud服务账号凭证文件放在安全位置，并确保在配置文件中正确引用其路径。
-
-## 启动服务
-
-### 开发环境
+4. 启动开发服务器：
 ```bash
 ./start-dev.sh
 ```
 
-### 生产环境
+## 环境变量配置
+
+主要配置项说明：
+
+```env
+# 服务配置
+PORT=8080
+ENV=development
+LOG_LEVEL=debug
+
+# Google Cloud 配置
+GOOGLE_CLOUD_PROJECT=your-project-id
+GOOGLE_CLOUD_LOCATION=your-location
+GOOGLE_APPLICATION_CREDENTIALS=path/to/your/credentials.json
+
+# 数据库配置
+DB_HOST=localhost
+DB_PORT=5432
+DB_USER=postgres
+DB_PASSWORD=your-password
+DB_NAME=homework_marking
+
+# CORS 配置
+CORS_ORIGIN=http://localhost:3000
+
+# 文件上传配置
+MAX_FILE_SIZE=10485760  # 10MB
+UPLOAD_DIR=uploads
+```
+
+## API 接口
+
+### 作业批改接口
+
+- URL: `/api/homework/analyze`
+- 方法: POST
+- 参数:
+  - file: 作业图片文件
+  - type: 作业类型 (english/chinese/math)
+- 返回: JSON 格式的批改结果
+
+### 模拟模式
+
+当无法访问 Google Cloud 服务时，系统会自动切换到模拟模式，返回预设的批改结果。
+
+## 开发指南
+
+### 目录结构
+
+```
+backend/
+├── cmd/            # 主程序入口
+├── config/         # 配置管理
+├── controllers/    # 控制器
+├── models/         # 数据模型
+├── services/       # 业务逻辑
+├── utils/          # 工具函数
+└── main.go         # 程序入口
+```
+
+### 构建和部署
+
+1. 开发环境构建：
+```bash
+./start-dev.sh
+```
+
+2. 生产环境构建：
 ```bash
 ./start-prod.sh
 ```
 
-或者直接使用Docker：
-```bash
-docker build -t ai-resume-backend .
-docker run -p 8080:8080 ai-resume-backend
-```
-
-服务将在配置的端口上运行(默认8080)。
-
-## 数据库配置
-
-### PostgreSQL (开发环境)
-1. 安装PostgreSQL
-2. 创建数据库：`CREATE DATABASE ai_resume;`
-3. 在`.env`文件中配置连接信息
-
-### MySQL (生产环境)
-1. 安装MySQL 8.0+
-2. 创建数据库：`CREATE DATABASE ai_resume;`
-3. 在`.env.production`文件中配置连接信息
-
-## API端点
-
-### 简历筛选
-- URL: `/api/resume/screen`
-- 方法: POST
-- 内容类型: multipart/form-data
-- 参数:
-  - resumes: 简历文件 (PDF或Word格式，支持多文件)
-  - jobRequirements: 职位要求
-  - industry: 行业
-
-### 面试题生成
-- URL: `/api/interview/questions`
-- 方法: POST
-- 内容类型: application/json
-- 参数:
-  - resume: 简历文件 (PDF或Word格式)
-  - jobRequirements: 职位要求
-  - industry: 行业
-
-### 面试总结
-- URL: `/api/interview/summary`
-- 方法: POST
-- 内容类型: application/json
-- 参数:
-  - jobRequirements: 职位要求
-  - industry: 行业
-  - interviewNotes: 面试记录
-
-## 安全注意事项
-
-### 敏感信息处理
-
-- **不要将实际的服务账号凭证（JSON文件）提交到版本控制系统**
-- **不要将包含实际配置的`.env`和`.env.production`文件提交到版本控制系统**
-- 使用`.env.example`作为模板，仅包含变量名和示例值
-- 在生产环境中，使用环境变量或密钥管理服务来存储敏感信息
-
-### 本地开发
-
-为了安全开发，请确保：
-1. `.gitignore`文件已配置为排除所有敏感文件
-2. 检查提交前的更改，确保没有意外包含敏感信息
-3. 使用环境变量而非硬编码的密钥和配置
-
 ## 注意事项
 
-- 在生产环境中，建议设置`GIN_MODE=release`
-- 确保服务账号有足够的权限调用Vertex AI API
-- 默认简历解析功能为简化版，实际项目中应使用专门的PDF和Word解析库 
+1. 确保 Google Cloud 凭证文件正确配置
+2. 生产环境部署前请修改所有默认密码
+3. 建议在生产环境使用 HTTPS
+4. 定期备份数据库
+
+## 许可证
+
+MIT License 
