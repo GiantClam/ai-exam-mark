@@ -1,4 +1,6 @@
-@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 :root {
   --background: #ffffff;
@@ -20,9 +22,19 @@
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: #f9fafb;
+  color: #333333;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+}
+
+/* 提高默认文本的对比度 */
+p, span, a, li, label, input, textarea, select {
+  @apply text-gray-800;
+}
+
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
 }
 
 /* 暗模式额外样式 */
