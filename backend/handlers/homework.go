@@ -3,19 +3,17 @@ package handlers
 import (
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 
-	"image"
-
 	"github.com/GiantClam/homework_marking/models"
 	"github.com/GiantClam/homework_marking/services"
-	"github.com/disintegration/imaging"
 	"github.com/gin-gonic/gin"
 )
 
 // processHomeworkImage processes the homework image with appropriate prompts based on type
-func processHomeworkImage(imagePath, homeworkType string) (string, error) {
+func processHomeworkImage(imagePath, homeworkType string, customPrompt string) (string, error) {
 	client := services.NewVertexAIClient()
 
 	var systemInstruction string
@@ -44,7 +42,8 @@ func processHomeworkImage(imagePath, homeworkType string) (string, error) {
 		  "feedback": "整体评价和建议"
 		}
 		
-		请只返回JSON格式数据，不要添加任何其他文本。确保JSON格式完整有效。`
+		请只返回标准JSON格式数据，不要使用Markdown代码块（不要使用三个反引号或'json'标记）。
+		不要添加任何其他解释性文本。确保JSON格式完整有效，字段名称与示例完全一致。`
 
 	case "chinese":
 		systemInstruction = `
@@ -69,7 +68,8 @@ func processHomeworkImage(imagePath, homeworkType string) (string, error) {
 		  "feedback": "整体评价和建议"
 		}
 		
-		请只返回JSON格式数据，不要添加任何其他文本。确保JSON格式完整有效。`
+		请只返回标准JSON格式数据，不要使用Markdown代码块（不要使用三个反引号或'json'标记）。
+		不要添加任何其他解释性文本。确保JSON格式完整有效，字段名称与示例完全一致。`
 
 	case "math":
 		systemInstruction = `
@@ -95,7 +95,8 @@ func processHomeworkImage(imagePath, homeworkType string) (string, error) {
 		  "feedback": "整体评价和建议"
 		}
 		
-		请只返回JSON格式数据，不要添加任何其他文本。确保JSON格式完整有效。`
+		请只返回标准JSON格式数据，不要使用Markdown代码块（不要使用三个反引号或'json'标记）。
+		不要添加任何其他解释性文本。确保JSON格式完整有效，字段名称与示例完全一致。`
 
 	default:
 		systemInstruction = `
@@ -116,11 +117,15 @@ func processHomeworkImage(imagePath, homeworkType string) (string, error) {
 		  "feedback": "整体评价和建议"
 		}
 		
-		请只返回JSON格式数据，不要添加任何其他文本。确保JSON格式完整有效。`
+		请只返回标准JSON格式数据，不要使用Markdown代码块（不要使用三个反引号或'json'标记）。
+		不要添加任何其他解释性文本。确保JSON格式完整有效，字段名称与示例完全一致。`
 	}
 
-	// 设置提示词
-	textPrompt := fmt.Sprintf("这是一份%s作业，请仔细分析图片中的手写答案，特别关注括号、下划线等位置的手写内容。", homeworkType)
+	// 设置提示词 - 使用传入的自定义提示词或者创建一个默认提示词
+	textPrompt := customPrompt
+	if textPrompt == "" {
+		textPrompt = fmt.Sprintf("这是一份%s作业，请仔细分析图片中的手写答案，特别关注括号、下划线等位置的手写内容。", homeworkType)
+	}
 
 	// 调用Gemini 2.0 Thinking模型分析图片
 	response, err := client.GenerateContentWithFile(systemInstruction, imagePath, "image/jpeg", textPrompt)
@@ -204,80 +209,110 @@ func MarkHomework(c *gin.Context) {
 	})
 }
 
-// 处理单栏布局图片
-func processSingleColumnImage(imagePath, homeworkType string) (interface{}, error) {
-	// 这里实现单栏布局的处理逻辑
-	// 直接从上到下处理整个图片
-	return processImage(imagePath, homeworkType)
-}
-
 // 处理双栏布局图片
 func processDoubleColumnImage(imagePath, homeworkType string) (interface{}, error) {
-	// 这里实现双栏布局的处理逻辑
-	// 1. 将图片分成左右两栏
-	// 2. 先处理左栏（从上到下）
-	// 3. 再处理右栏（从上到下）
-	// 4. 合并结果
+	// 直接处理整张图片，在提示词中指明这是双栏布局
+	return processImageWithLayout(imagePath, homeworkType, "double")
+}
 
-	// 读取图片
-	img, err := imaging.Open(imagePath)
-	if err != nil {
-		return nil, fmt.Errorf("无法打开图片: %v", err)
+// 处理单栏布局图片
+func processSingleColumnImage(imagePath, homeworkType string) (interface{}, error) {
+	// 直接处理整张图片，在提示词中指明这是单栏布局
+	return processImageWithLayout(imagePath, homeworkType, "single")
+}
+
+// 使用特定布局处理图片
+func processImageWithLayout(imagePath, homeworkType, layoutType string) (interface{}, error) {
+	// 添加详细日志来追踪函数执行
+	log.Printf("[DEBUG] 开始处理图片: %s, 类型: %s, 布局: %s", imagePath, homeworkType, layoutType)
+
+	// 检查图片文件是否存在
+	if _, err := os.Stat(imagePath); os.IsNotExist(err) {
+		log.Printf("[ERROR] 图片文件不存在: %s", imagePath)
+		return nil, fmt.Errorf("图片文件不存在: %s", imagePath)
 	}
 
-	// 获取图片尺寸
-	bounds := img.Bounds()
-	width := bounds.Max.X
-	height := bounds.Max.Y
+	// 记录环境变量信息
+	log.Printf("[DEBUG] GOOGLE_APPLICATION_CREDENTIALS: %s", os.Getenv("GOOGLE_APPLICATION_CREDENTIALS"))
+	log.Printf("[DEBUG] GOOGLE_CLOUD_PROJECT: %s", os.Getenv("GOOGLE_CLOUD_PROJECT"))
+	log.Printf("[DEBUG] GOOGLE_CLOUD_LOCATION: %s", os.Getenv("GOOGLE_CLOUD_LOCATION"))
 
-	// 分割图片为左右两栏
-	leftImage := imaging.Crop(img, image.Rect(0, 0, width/2, height))
-	rightImage := imaging.Crop(img, image.Rect(width/2, 0, width, height))
+	// 调用AI服务处理图片
+	log.Printf("[DEBUG] 准备调用AI服务处理图片...")
+	// 检查是否处于模拟模式
+	log.Printf("[DEBUG] AI服务模拟模式: %v", services.UseMockMode)
 
-	// 保存临时文件
-	leftPath := imagePath + "-left.jpg"
-	rightPath := imagePath + "-right.jpg"
-
-	err = imaging.Save(leftImage, leftPath)
-	if err != nil {
-		return nil, fmt.Errorf("无法保存左栏图片: %v", err)
-	}
-	defer os.Remove(leftPath)
-
-	err = imaging.Save(rightImage, rightPath)
-	if err != nil {
-		return nil, fmt.Errorf("无法保存右栏图片: %v", err)
-	}
-	defer os.Remove(rightPath)
-
-	// 处理左栏
-	leftResult, err := processImage(leftPath, homeworkType)
-	if err != nil {
-		return nil, fmt.Errorf("处理左栏失败: %v", err)
+	// 根据布局类型调整提示词
+	var layoutPrompt string
+	if layoutType == "double" {
+		layoutPrompt = "这是一份试卷图片，图片是双栏布局。请先分析左半部分的内容，然后再分析右半部分的内容，从上到下处理。"
+	} else {
+		layoutPrompt = "这是一份普通作业图片，从上到下处理内容。"
 	}
 
-	// 处理右栏
-	rightResult, err := processImage(rightPath, homeworkType)
+	// 完整提示词
+	textPrompt := fmt.Sprintf("%s 这是一份%s作业，请仔细分析图片中的手写答案，特别关注括号、下划线等位置的手写内容。",
+		layoutPrompt, homeworkType)
+
+	// 调用大模型处理图片
+	result, err := processHomeworkImage(imagePath, homeworkType, textPrompt)
 	if err != nil {
-		return nil, fmt.Errorf("处理右栏失败: %v", err)
+		log.Printf("[ERROR] 处理图片失败: %v", err)
+		return nil, fmt.Errorf("处理图片失败: %v", err)
 	}
 
-	// 合并结果
-	// 这里需要根据具体的返回类型进行合并
-	// 假设返回的是 []Answer 类型
-	leftAnswers := leftResult.([]models.Answer)
-	rightAnswers := rightResult.([]models.Answer)
+	// 记录处理结果
+	log.Printf("[DEBUG] 图片处理完成，结果长度: %d 字符", len(result))
 
-	// 合并答案，保持左栏在前，右栏在后
-	mergedAnswers := append(leftAnswers, rightAnswers...)
+	// 安全获取结果预览，避免字符串索引超出范围错误
+	previewLength := 100
+	if len(result) < previewLength {
+		previewLength = len(result)
+	}
+	log.Printf("[DEBUG] 结果预览: %s", result[:previewLength])
 
-	return mergedAnswers, nil
+	// 返回结果
+	return result, nil
 }
 
 // 处理单张图片
 func processImage(imagePath, homeworkType string) (interface{}, error) {
-	// 这里实现具体的图片处理逻辑
-	// 可以调用 Gemini API 或其他 OCR 服务
-	// 返回处理结果
-	return nil, nil
+	// 添加详细日志来追踪函数执行
+	log.Printf("[DEBUG] 开始处理图片: %s, 类型: %s", imagePath, homeworkType)
+
+	// 检查图片文件是否存在
+	if _, err := os.Stat(imagePath); os.IsNotExist(err) {
+		log.Printf("[ERROR] 图片文件不存在: %s", imagePath)
+		return nil, fmt.Errorf("图片文件不存在: %s", imagePath)
+	}
+
+	// 记录环境变量信息
+	log.Printf("[DEBUG] GOOGLE_APPLICATION_CREDENTIALS: %s", os.Getenv("GOOGLE_APPLICATION_CREDENTIALS"))
+	log.Printf("[DEBUG] GOOGLE_CLOUD_PROJECT: %s", os.Getenv("GOOGLE_CLOUD_PROJECT"))
+	log.Printf("[DEBUG] GOOGLE_CLOUD_LOCATION: %s", os.Getenv("GOOGLE_CLOUD_LOCATION"))
+
+	// 调用AI服务处理图片
+	log.Printf("[DEBUG] 准备调用AI服务处理图片...")
+	// 检查是否处于模拟模式
+	log.Printf("[DEBUG] AI服务模拟模式: %v", services.UseMockMode)
+
+	// 调用大模型处理图片
+	result, err := processHomeworkImage(imagePath, homeworkType, "")
+	if err != nil {
+		log.Printf("[ERROR] 处理图片失败: %v", err)
+		return nil, fmt.Errorf("处理图片失败: %v", err)
+	}
+
+	// 记录处理结果
+	log.Printf("[DEBUG] 图片处理完成，结果长度: %d 字符", len(result))
+
+	// 安全获取结果预览，避免字符串索引超出范围错误
+	previewLength := 100
+	if len(result) < previewLength {
+		previewLength = len(result)
+	}
+	log.Printf("[DEBUG] 结果预览: %s", result[:previewLength])
+
+	// 返回结果
+	return result, nil
 }

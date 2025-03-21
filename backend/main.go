@@ -51,24 +51,53 @@ func syncProxyEnvVars() {
 }
 
 func main() {
-	// 同步代理环境变量
+	// 设置日志格式
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
+	log.Println("启动作业批改服务...")
+
+	// 首先同步代理环境变量
 	syncProxyEnvVars()
 
-	// 加载.env文件中的环境变量
+	// 优先加载.env文件中的环境变量
+	log.Println("加载环境变量配置...")
 	if err := godotenv.Load(); err != nil {
-		log.Println("警告: 未找到.env文件或无法加载")
+		log.Println("警告: 未找到.env文件或无法加载，使用系统环境变量")
+	} else {
+		log.Println("成功加载.env文件")
 	}
 
-	// 检查凭证文件是否存在，如果不存在则启用模拟模式
-	credentialsFile := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
-	if credentialsFile == "" {
-		log.Println("警告: 未设置GOOGLE_APPLICATION_CREDENTIALS环境变量，将启用模拟模式")
-		services.UseMockMode = true
-	} else if _, err := os.Stat(credentialsFile); os.IsNotExist(err) {
-		log.Printf("警告: 凭证文件不存在: %s，将启用模拟模式", credentialsFile)
-		services.UseMockMode = true
+	// 记录是否启用模拟模式 (加载.env后检查)
+	services.UseMockMode = os.Getenv("USE_MOCK_MODE") == "true"
+	log.Printf("模拟模式: %v", services.UseMockMode)
+
+	// 检查关键环境变量
+	log.Printf("环境变量配置:")
+	log.Printf("- GOOGLE_APPLICATION_CREDENTIALS: %s", os.Getenv("GOOGLE_APPLICATION_CREDENTIALS"))
+	log.Printf("- GOOGLE_CLOUD_PROJECT: %s", os.Getenv("GOOGLE_CLOUD_PROJECT"))
+	log.Printf("- GOOGLE_CLOUD_LOCATION: %s", os.Getenv("GOOGLE_CLOUD_LOCATION"))
+	log.Printf("- PORT: %s", os.Getenv("PORT"))
+
+	// 检查凭证文件是否存在
+	credFile := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
+	if credFile != "" {
+		if _, err := os.Stat(credFile); os.IsNotExist(err) {
+			log.Printf("警告: 凭证文件不存在: %s", credFile)
+		} else {
+			log.Printf("凭证文件存在: %s", credFile)
+		}
 	} else {
-		log.Printf("已找到凭证文件: %s", credentialsFile)
+		log.Printf("警告: 未设置GOOGLE_APPLICATION_CREDENTIALS环境变量")
+	}
+
+	// 如果未设置项目ID或location，设置默认值
+	if os.Getenv("GOOGLE_CLOUD_PROJECT") == "" {
+		log.Printf("警告: 未设置GOOGLE_CLOUD_PROJECT环境变量，某些功能可能不可用")
+		// 可能需要设置默认值
+	}
+
+	if os.Getenv("GOOGLE_CLOUD_LOCATION") == "" {
+		log.Printf("警告: 未设置GOOGLE_CLOUD_LOCATION环境变量，某些功能可能不可用")
+		// 可能需要设置默认值
 	}
 
 	// 确保上传目录存在

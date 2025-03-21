@@ -32,7 +32,7 @@ func NewVertexAIClient() *VertexAIClient {
 	return &VertexAIClient{
 		projectID: os.Getenv("GOOGLE_CLOUD_PROJECT"),
 		location:  os.Getenv("GOOGLE_CLOUD_LOCATION"),
-		model:     "gemini-2.0-flash-001", // 使用Gemini模型
+		model:     "gemini-2.0-pro-exp-02-05", // 使用Gemini模型
 	}
 }
 
@@ -228,6 +228,37 @@ func (c *VertexAIClient) GenerateContent(systemInstruction, prompt string) (stri
 
 // GenerateContentWithFile 使用Vertex AI分析文件内容
 func (c *VertexAIClient) GenerateContentWithFile(systemInstruction string, filePath string, mimeType string, textPrompt string) (string, error) {
+	// 添加更详细的日志信息
+	log.Printf("[DEBUG] 开始调用 GenerateContentWithFile 函数")
+	log.Printf("[DEBUG] 文件路径: %s", filePath)
+	log.Printf("[DEBUG] MIME类型: %s", mimeType)
+	log.Printf("[DEBUG] 文本提示: %s", textPrompt)
+	log.Printf("[DEBUG] 系统指令长度: %d 字符", len(systemInstruction))
+
+	// 打印环境配置
+	log.Printf("[INFO] 环境配置:")
+	log.Printf("[INFO] - GOOGLE_APPLICATION_CREDENTIALS: %s", os.Getenv("GOOGLE_APPLICATION_CREDENTIALS"))
+	log.Printf("[INFO] - GOOGLE_CLOUD_PROJECT: %s", os.Getenv("GOOGLE_CLOUD_PROJECT"))
+	log.Printf("[INFO] - GOOGLE_CLOUD_LOCATION: %s", os.Getenv("GOOGLE_CLOUD_LOCATION"))
+	log.Printf("[INFO] - HTTP_PROXY: %s", os.Getenv("HTTP_PROXY"))
+	log.Printf("[INFO] - HTTPS_PROXY: %s", os.Getenv("HTTPS_PROXY"))
+
+	// 检查凭证是否存在
+	credentialsFile := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
+	if _, err := os.Stat(credentialsFile); os.IsNotExist(err) {
+		log.Printf("[ERROR] 凭证文件不存在: %s, 错误: %v", credentialsFile, err)
+	} else {
+		log.Printf("[INFO] 凭证文件存在: %s", credentialsFile)
+	}
+
+	// 检查项目和位置是否设置
+	if c.projectID == "" {
+		log.Printf("[WARN] Google Cloud Project ID 未设置")
+	}
+	if c.location == "" {
+		log.Printf("[WARN] Google Cloud Location 未设置")
+	}
+
 	// 如果启用了模拟模式，返回模拟数据
 	if UseMockMode {
 		log.Printf("[INFO] 使用模拟模式返回作业批改结果")
@@ -244,7 +275,7 @@ func (c *VertexAIClient) GenerateContentWithFile(systemInstruction string, fileP
 	ctx := context.Background()
 
 	// 使用环境变量中的凭证文件路径
-	credentialsFile := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
+	credentialsFile = os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
 
 	// 检查凭证文件是否存在
 	if _, err := os.Stat(credentialsFile); os.IsNotExist(err) {
@@ -316,7 +347,13 @@ func (c *VertexAIClient) GenerateContentWithFile(systemInstruction string, fileP
 	}
 
 	// 直接将原始文件数据作为请求的一部分（二进制数据）
-	resp, err := model.GenerateContent(ctx, genai.Blob{
+	genModel := model
+
+	// 设置响应类型为JSON
+	genModel.ResponseMIMEType = "application/json"
+
+	// 发送请求
+	resp, err := genModel.GenerateContent(ctx, genai.Blob{
 		MIMEType: mimeType,
 		Data:     fileData,
 	}, genai.Text(combinedPrompt))
