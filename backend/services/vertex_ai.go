@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -13,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"cloud.google.com/go/vertexai/genai"
+	"github.com/pdfcpu/pdfcpu/pkg/api"
 	"google.golang.org/api/option"
 )
 
@@ -46,59 +46,80 @@ func getClientOptions(credentialsFile string) []option.ClientOption {
 }
 
 // EnsureCompleteJSON 检查并确保返回的 JSON 是完整的
-func EnsureCompleteJSON(jsonStr string) string {
-	// 检查是否是 Markdown 代码块格式，如果是，先调用 CleanMarkdownCodeBlock 清理
-	if strings.Contains(jsonStr, "```") {
-		log.Printf("[DEBUG] 检测到 Markdown 代码块格式，进行清理")
-		jsonStr = CleanMarkdownCodeBlock(jsonStr)
+func EnsureCompleteJSON(content string) string {
+	log.Printf("[DEBUG] 开始检查JSON完整性")
+	log.Printf("[DEBUG] 原始内容长度: %d 字符", len(content))
+
+	// 清理内容
+	content = strings.TrimSpace(content)
+
+	// 检查是否为空
+	if content == "" {
+		log.Printf("[WARN] 内容为空")
+		return "{}"
 	}
 
-	// 检查是否以大括号开始和结束
-	jsonStr = strings.TrimSpace(jsonStr)
-	if !strings.HasPrefix(jsonStr, "{") {
-		log.Printf("[WARN] JSON 响应不是以 '{' 开始的: %s", jsonStr[:Min(50, len(jsonStr))])
-
-		// 尝试查找 JSON 开始的位置
-		start := strings.Index(jsonStr, "{")
-		if start >= 0 {
-			log.Printf("[INFO] 找到 JSON 开始位置，截取从 '{' 开始的部分")
-			jsonStr = jsonStr[start:]
+	// 检查是否以 { 开始
+	if !strings.HasPrefix(content, "{") {
+		log.Printf("[WARN] 内容不以 { 开始，尝试查找第一个 {")
+		if idx := strings.Index(content, "{"); idx >= 0 {
+			content = content[idx:]
+			log.Printf("[DEBUG] 已找到第一个 {，移除前面的内容")
 		} else {
+			log.Printf("[WARN] 未找到 {，返回空对象")
 			return "{}"
 		}
 	}
 
-	// 检查开闭括号是否成对
-	openCount := strings.Count(jsonStr, "{")
-	closeCount := strings.Count(jsonStr, "}")
+	// 检查是否以 } 结束
+	if !strings.HasSuffix(content, "}") {
+		log.Printf("[WARN] 内容不以 } 结束，尝试查找最后一个 }")
+		if idx := strings.LastIndex(content, "}"); idx >= 0 {
+			content = content[:idx+1]
+			log.Printf("[DEBUG] 已找到最后一个 }，移除后面的内容")
+		} else {
+			log.Printf("[WARN] 未找到 }，返回空对象")
+			return "{}"
+		}
+	}
 
+	// 计算大括号的数量
+	openCount := strings.Count(content, "{")
+	closeCount := strings.Count(content, "}")
+
+	// 如果大括号数量不匹配，尝试修复
 	if openCount != closeCount {
-		log.Printf("[WARN] JSON 响应括号不配对: %d 个 '{', %d 个 '}'", openCount, closeCount)
+		log.Printf("[WARN] 大括号数量不匹配: { = %d, } = %d", openCount, closeCount)
 
-		// 尝试修复 JSON
+		// 如果缺少右大括号，添加缺少的数量
 		if openCount > closeCount {
-			// 缺少闭括号，添加缺少的闭括号
-			jsonStr += strings.Repeat("}", openCount-closeCount)
-			log.Printf("[INFO] 添加了 %d 个 '}' 来修复 JSON", openCount-closeCount)
+			missing := openCount - closeCount
+			content += strings.Repeat("}", missing)
+			log.Printf("[DEBUG] 添加了 %d 个缺少的 }", missing)
+		}
+		// 如果缺少左大括号，添加到开头
+		if closeCount > openCount {
+			missing := closeCount - openCount
+			content = strings.Repeat("{", missing) + content
+			log.Printf("[DEBUG] 添加了 %d 个缺少的 {", missing)
 		}
 	}
 
-	// 验证 JSON 是否有效
-	var data interface{}
-	if err := json.Unmarshal([]byte(jsonStr), &data); err != nil {
-		log.Printf("[ERROR] JSON 无效: %v", err)
-
-		// 进一步修复 JSON 格式
-		jsonStr = TryFixJsonFormat(jsonStr)
-
-		// 再次验证
-		if err := json.Unmarshal([]byte(jsonStr), &data); err != nil {
-			log.Printf("[ERROR] 修复后的 JSON 仍然无效: %v", err)
+	// 验证JSON格式
+	var jsonObj interface{}
+	if err := json.Unmarshal([]byte(content), &jsonObj); err != nil {
+		log.Printf("[ERROR] JSON格式无效: %v", err)
+		// 尝试使用更宽松的方式解析
+		content = CleanMarkdownCodeBlock(content)
+		if err := json.Unmarshal([]byte(content), &jsonObj); err != nil {
+			log.Printf("[ERROR] 清理后JSON仍然无效，返回空对象")
 			return "{}"
 		}
+		log.Printf("[DEBUG] 清理后JSON有效")
 	}
 
-	return jsonStr
+	log.Printf("[DEBUG] JSON完整性检查完成，最终内容长度: %d 字符", len(content))
+	return content
 }
 
 // sanitizeUTF8 清理字符串中的无效UTF-8字符（内部函数）
@@ -123,89 +144,82 @@ func sanitizeUTF8(s string) string {
 	return builder.String()
 }
 
-// GenerateContent 使用Vertex AI生成内容
-func (c *VertexAIClient) GenerateContent(systemInstruction, prompt string) (string, error) {
-	// 添加日志
-	log.Printf("[DEBUG] 准备调用 Vertex AI 生成内容")
-	log.Printf("[DEBUG] 项目ID: %s, 位置: %s, 模型: %s", c.projectID, c.location, c.model)
-	log.Printf("[DEBUG] 凭证文件路径: %s", os.Getenv("GOOGLE_APPLICATION_CREDENTIALS"))
+// GenerateContent 使用文本内容生成AI回复，不需要附加文件
+func (c *VertexAIClient) GenerateContent(systemInstruction, textPrompt string) (string, error) {
+	log.Printf("[INFO] 开始生成AI内容...")
+	log.Printf("[DEBUG] 系统指令长度: %d 字符", len(systemInstruction))
+	log.Printf("[DEBUG] 文本提示词长度: %d 字符", len(textPrompt))
 
-	// 记录代理设置
-	log.Printf("[DEBUG] HTTP_PROXY: %s", os.Getenv("HTTP_PROXY"))
-	log.Printf("[DEBUG] HTTPS_PROXY: %s", os.Getenv("HTTPS_PROXY"))
-	log.Printf("[DEBUG] NO_PROXY: %s", os.Getenv("NO_PROXY"))
-
-	// 创建带有较长超时时间的上下文
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	// 创建一个上下文，可以在必要时取消请求
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Second)
 	defer cancel()
 
-	// 清理输入提示中的无效UTF-8字符
-	sanitizedPrompt := sanitizeUTF8(prompt)
-
-	// 使用环境变量中的凭证文件路径
-	credentialsFile := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
-
-	// 检查凭证文件是否存在
-	if _, err := os.Stat(credentialsFile); os.IsNotExist(err) {
-		log.Printf("[ERROR] 凭证文件不存在: %s", credentialsFile)
-		return "", fmt.Errorf("凭证文件不存在: %s", credentialsFile)
-	}
-
-	log.Printf("[DEBUG] 开始创建 Vertex AI 客户端...")
-
-	// 获取客户端选项（包含代理设置）
-	opts := getClientOptions(credentialsFile)
-
 	// 创建客户端
-	client, err := genai.NewClient(ctx, c.projectID, c.location, opts...)
+	client, err := genai.NewClient(ctx, c.projectID, c.location, option.WithCredentialsFile(os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")))
 	if err != nil {
 		log.Printf("[ERROR] 创建AI客户端失败: %v", err)
 		return "", fmt.Errorf("创建AI客户端失败: %v", err)
 	}
 	defer client.Close()
 
-	c.client = client
-	log.Printf("[DEBUG] Vertex AI 客户端创建成功")
-
-	// 获取模型
+	// 选择模型
 	model := client.GenerativeModel(c.model)
 
-	// 设置生成参数 - 更新参数以确保更简洁的回复
-	temperature := float32(0.1) // 降低温度，使输出更确定性
-	topP := float32(0.7)
-	topK := int32(30)
-	// 减少最大输出 token 数，避免过长导致截断
+	// 设置模型参数
+	temperature := float32(0.2)
+	topP := float32(0.8)
+	topK := int32(40)
 	maxOutputTokens := int32(4096)
 
-	// 直接在模型上设置参数
 	model.Temperature = &temperature
 	model.TopP = &topP
 	model.TopK = &topK
 	model.MaxOutputTokens = &maxOutputTokens
 
-	// 正确设置SystemInstruction为genai.Content类型
-	sysContent := genai.Content{
-		Parts: []genai.Part{genai.Text(systemInstruction)},
-		Role:  "system",
+	// 如果系统指令不为空，设置系统指令
+	if systemInstruction != "" {
+		model.SystemInstruction = &genai.Content{
+			Parts: []genai.Part{genai.Text(systemInstruction)},
+			Role:  "system",
+		}
 	}
-	model.SystemInstruction = &sysContent
 
-	log.Printf("[DEBUG] 开始向 Vertex AI 发送请求...")
+	log.Printf("[INFO] 发送请求到Gemini模型，预期等待时间10-30秒...")
 
-	// 创建内容
-	resp, err := model.GenerateContent(ctx, genai.Text(sanitizedPrompt))
+	// 发送请求 - 直接传递文本作为输入
+	resp, err := model.GenerateContent(ctx, genai.Text(textPrompt))
+
+	// 处理错误
 	if err != nil {
-		log.Printf("[ERROR] AI内容生成失败: %v，错误类型: %T", err, err)
-		return "", fmt.Errorf("AI内容生成失败: %v", err)
+		log.Printf("[ERROR] AI请求失败: %v", err)
+
+		// 检查是否为安全策略限制错误
+		if strings.Contains(err.Error(), "safety") || strings.Contains(err.Error(), "blocked") {
+			return "", fmt.Errorf("内容被安全策略限制，无法处理该请求。请尝试不同的内容或描述方式")
+		}
+
+		return "", fmt.Errorf("AI服务请求失败: %v", err)
 	}
 
-	log.Printf("[DEBUG] Vertex AI 响应接收成功")
-
-	if len(resp.Candidates) == 0 || len(resp.Candidates[0].Content.Parts) == 0 {
-		return "", fmt.Errorf("AI未返回有效内容")
+	// 检查是否有候选结果
+	if len(resp.Candidates) == 0 {
+		log.Printf("[ERROR] AI未返回任何候选结果")
+		return "", fmt.Errorf("AI未返回任何候选结果")
 	}
 
-	// 获取响应文本
+	// 检查是否存在封锁内容原因
+	if resp.Candidates[0].FinishReason == genai.FinishReasonSafety {
+		log.Printf("[ERROR] 内容被安全策略限制")
+		return "", fmt.Errorf("内容被安全策略限制")
+	}
+
+	// 检查是否有内容部分
+	if len(resp.Candidates[0].Content.Parts) == 0 {
+		log.Printf("[ERROR] AI返回的候选结果没有内容部分")
+		return "", fmt.Errorf("AI返回的候选结果没有内容部分")
+	}
+
+	// 提取响应文本
 	responseText := ""
 	for _, part := range resp.Candidates[0].Content.Parts {
 		if text, ok := part.(genai.Text); ok {
@@ -214,180 +228,240 @@ func (c *VertexAIClient) GenerateContent(systemInstruction, prompt string) (stri
 	}
 
 	if responseText == "" {
+		log.Printf("[ERROR] AI未返回文本内容")
 		return "", fmt.Errorf("AI未返回文本内容")
 	}
 
-	// 清理响应中的无效UTF-8字符
-	sanitizedResponse := sanitizeUTF8(responseText)
+	// 记录响应的预览
+	if len(responseText) > 100 {
+		log.Printf("[DEBUG] AI响应文本前100个字符: %s", responseText[:100])
+	} else {
+		log.Printf("[DEBUG] AI响应文本: %s", responseText)
+	}
 
-	// 确保 JSON 完整
-	sanitizedResponse = EnsureCompleteJSON(sanitizedResponse)
+	// 处理JSON格式
+	// 如果响应文本看起来是JSON格式，尝试清理和验证
+	if strings.Contains(responseText, "{") || strings.Contains(responseText, "[") {
+		log.Printf("[INFO] 响应看起来包含JSON，尝试处理和验证")
+		// 使用增强版的JSON处理函数
+		validJSON := EnsureValidJSON(responseText)
+		return validJSON, nil
+	}
 
-	return sanitizedResponse, nil
+	// 如果不是JSON，直接返回原始文本
+	log.Printf("[INFO] 响应不包含JSON结构，返回原始文本")
+	return responseText, nil
 }
 
-// GenerateContentWithFile 使用Vertex AI分析文件内容
-func (c *VertexAIClient) GenerateContentWithFile(systemInstruction string, filePath string, mimeType string, textPrompt string) (string, error) {
-	// 添加更详细的日志信息
-	log.Printf("[DEBUG] 开始调用 GenerateContentWithFile 函数")
+// GenerateContentWithFile 使用文件内容生成AI回复
+func (c *VertexAIClient) GenerateContentWithFile(systemInstruction, filePath, mimeType, textPrompt string) (string, error) {
+	log.Printf("[INFO] 开始生成带文件的AI内容...")
+	log.Printf("[DEBUG] 系统指令长度: %d 字符", len(systemInstruction))
 	log.Printf("[DEBUG] 文件路径: %s", filePath)
 	log.Printf("[DEBUG] MIME类型: %s", mimeType)
-	log.Printf("[DEBUG] 文本提示: %s", textPrompt)
-	log.Printf("[DEBUG] 系统指令长度: %d 字符", len(systemInstruction))
+	log.Printf("[DEBUG] 文本提示词长度: %d 字符", len(textPrompt))
 
-	// 打印环境配置
-	log.Printf("[INFO] 环境配置:")
-	log.Printf("[INFO] - GOOGLE_APPLICATION_CREDENTIALS: %s", os.Getenv("GOOGLE_APPLICATION_CREDENTIALS"))
-	log.Printf("[INFO] - GOOGLE_CLOUD_PROJECT: %s", os.Getenv("GOOGLE_CLOUD_PROJECT"))
-	log.Printf("[INFO] - GOOGLE_CLOUD_LOCATION: %s", os.Getenv("GOOGLE_CLOUD_LOCATION"))
-	log.Printf("[INFO] - HTTP_PROXY: %s", os.Getenv("HTTP_PROXY"))
-	log.Printf("[INFO] - HTTPS_PROXY: %s", os.Getenv("HTTPS_PROXY"))
-
-	// 检查凭证是否存在
-	credentialsFile := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
-	if _, err := os.Stat(credentialsFile); os.IsNotExist(err) {
-		log.Printf("[ERROR] 凭证文件不存在: %s, 错误: %v", credentialsFile, err)
-	} else {
-		log.Printf("[INFO] 凭证文件存在: %s", credentialsFile)
-	}
-
-	// 检查项目和位置是否设置
-	if c.projectID == "" {
-		log.Printf("[WARN] Google Cloud Project ID 未设置")
-	}
-	if c.location == "" {
-		log.Printf("[WARN] Google Cloud Location 未设置")
-	}
-
-	// 如果启用了模拟模式，返回模拟数据
-	if UseMockMode {
-		log.Printf("[INFO] 使用模拟模式返回作业批改结果")
-		mockResult, err := generateMockHomeworkResult(filePath, textPrompt)
-		if err != nil {
-			return "", err
-		}
-		// 确保模拟结果也是有效的JSON
-		cleanResult := CleanMarkdownCodeBlock(mockResult)
-		sanitizedResult := sanitizeUTF8(cleanResult)
-		return sanitizedResult, nil
-	}
-
-	ctx := context.Background()
-
-	// 使用环境变量中的凭证文件路径
-	credentialsFile = os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
-
-	// 检查凭证文件是否存在
-	if _, err := os.Stat(credentialsFile); os.IsNotExist(err) {
-		log.Printf("[WARN] 凭证文件不存在或无法访问: %s，启用模拟模式", credentialsFile)
-		UseMockMode = true
-		return generateMockHomeworkResult(filePath, textPrompt)
-	}
-
-	// 创建客户端
-	client, err := genai.NewClient(ctx, c.projectID, c.location, option.WithCredentialsFile(credentialsFile))
+	// 检查文件是否存在和可访问
+	fileInfo, err := os.Stat(filePath)
 	if err != nil {
-		log.Printf("[WARN] 创建AI客户端失败: %v，启用模拟模式", err)
-		UseMockMode = true
-		return generateMockHomeworkResult(filePath, textPrompt)
-	}
-	defer client.Close()
-
-	c.client = client
-
-	// 获取模型
-	model := client.GenerativeModel(c.model)
-
-	// 设置生成参数
-	temperature := float32(0.2)
-	topP := float32(0.8)
-	topK := int32(40)
-	maxOutputTokens := int32(8192)
-
-	// 直接在模型上设置参数
-	model.Temperature = &temperature
-	model.TopP = &topP
-	model.TopK = &topK
-	model.MaxOutputTokens = &maxOutputTokens
-
-	// 正确设置SystemInstruction为genai.Content类型
-	sysContent := genai.Content{
-		Parts: []genai.Part{genai.Text(systemInstruction)},
-		Role:  "system",
-	}
-	model.SystemInstruction = &sysContent
-
-	// 读取文件内容
-	file, err := os.Open(filePath)
-	if err != nil {
-		log.Printf("[WARN] 无法打开文件: %v，启用模拟模式", err)
-		UseMockMode = true
-		return generateMockHomeworkResult(filePath, textPrompt)
-	}
-	defer file.Close()
-
-	// 读取文件数据
-	fileData, err := io.ReadAll(file)
-	if err != nil {
-		log.Printf("[WARN] 无法读取文件数据: %v，启用模拟模式", err)
-		UseMockMode = true
-		return generateMockHomeworkResult(filePath, textPrompt)
+		log.Printf("[ERROR] 文件检查失败: %v", err)
+		return "", fmt.Errorf("文件检查失败: %v", err)
 	}
 
 	// 获取文件名
 	fileName := filepath.Base(filePath)
-	log.Printf("处理文件: %s, 大小: %d 字节, MIME类型: %s", fileName, len(fileData), mimeType)
+	log.Printf("[INFO] 文件名: %s, 大小: %d 字节", fileName, fileInfo.Size())
 
-	// 构建提示文本，包含有关文件的信息
-	filePrompt := fmt.Sprintf("请分析以下作业图片（文件名: %s）：", fileName)
-	combinedPrompt := filePrompt
-	if textPrompt != "" {
-		sanitizedPrompt := sanitizeUTF8(textPrompt)
-		combinedPrompt += "\n\n" + sanitizedPrompt
-	}
-
-	// 直接将原始文件数据作为请求的一部分（二进制数据）
-	genModel := model
-
-	// 设置响应类型为JSON
-	genModel.ResponseMIMEType = "application/json"
-
-	// 发送请求
-	resp, err := genModel.GenerateContent(ctx, genai.Blob{
-		MIMEType: mimeType,
-		Data:     fileData,
-	}, genai.Text(combinedPrompt))
-
-	if err != nil {
-		log.Printf("[WARN] AI内容生成失败: %v，启用模拟模式", err)
-		UseMockMode = true
-		return generateMockHomeworkResult(filePath, textPrompt)
-	}
-
-	if len(resp.Candidates) == 0 || len(resp.Candidates[0].Content.Parts) == 0 {
-		log.Printf("[WARN] AI未返回有效内容，启用模拟模式")
-		UseMockMode = true
-		return generateMockHomeworkResult(filePath, textPrompt)
-	}
-
-	// 获取响应文本
-	responseText := ""
-	for _, part := range resp.Candidates[0].Content.Parts {
-		if text, ok := part.(genai.Text); ok {
-			responseText += string(text)
+	// 如果文件是PDF，尝试获取页数
+	if strings.HasSuffix(fileName, ".pdf") {
+		pageCount, err := api.PageCountFile(filePath)
+		if err != nil {
+			log.Printf("[WARN] 无法获取PDF页数: %v", err)
+		} else {
+			log.Printf("[INFO] PDF文件页数: %d", pageCount)
+			if pageCount > 1 {
+				// 如果PDF有多页，修改提示词，指示大模型分析所有页面
+				log.Printf("[INFO] 检测到多页PDF，修改提示词以分析所有 %d 页", pageCount)
+				textPrompt = fmt.Sprintf("%s 注意：这是一个包含 %d 页的PDF文件，请务必分析所有页面内容。",
+					textPrompt, pageCount)
+			}
 		}
 	}
 
-	if responseText == "" {
-		log.Printf("[WARN] AI未返回文本内容，启用模拟模式")
-		UseMockMode = true
-		return generateMockHomeworkResult(filePath, textPrompt)
+	// 设置重试次数和超时时间
+	maxRetries := 3
+	for retryCount := 0; retryCount <= maxRetries; retryCount++ {
+		if retryCount > 0 {
+			backoffTime := time.Duration(retryCount*5) * time.Second
+			log.Printf("[INFO] 第 %d 次重试，等待 %v 后进行...", retryCount, backoffTime)
+			time.Sleep(backoffTime)
+		}
+
+		// 每次尝试创建新的上下文，增加超时时间
+		timeoutSeconds := 300 + retryCount*60 // 每次重试多增加60秒的超时时间
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSeconds)*time.Second)
+		defer cancel()
+
+		// 创建客户端
+		client, err := genai.NewClient(ctx, c.projectID, c.location, option.WithCredentialsFile(os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")))
+		if err != nil {
+			log.Printf("[ERROR] 创建AI客户端失败: %v", err)
+			continue // 重试
+		}
+		defer client.Close()
+
+		// 选择模型
+		model := client.GenerativeModel(c.model)
+
+		// 设置模型参数
+		temperature := float32(0.2)
+		topP := float32(0.8)
+		topK := int32(40)
+		maxOutputTokens := int32(4096)
+
+		model.Temperature = &temperature
+		model.TopP = &topP
+		model.TopK = &topK
+		model.MaxOutputTokens = &maxOutputTokens
+
+		// 如果系统指令不为空，设置系统指令
+		if systemInstruction != "" {
+			model.SystemInstruction = &genai.Content{
+				Parts: []genai.Part{genai.Text(systemInstruction)},
+				Role:  "system",
+			}
+		}
+
+		// 读取文件内容
+		fileData, err := os.ReadFile(filePath)
+		if err != nil {
+			log.Printf("[ERROR] 读取文件内容失败: %v", err)
+			return "", fmt.Errorf("读取文件内容失败: %v", err)
+		}
+
+		// 如果重试，修改提示词
+		actualPrompt := textPrompt
+		if retryCount > 0 {
+			actualPrompt = fmt.Sprintf("重试(%d/%d): %s", retryCount, maxRetries, textPrompt)
+		}
+
+		log.Printf("[INFO] 发送带文件的请求到Gemini模型，超时时间: %d秒...", timeoutSeconds)
+
+		// 创建文件blob
+		fileBlob := genai.Blob{
+			MIMEType: mimeType,
+			Data:     fileData,
+		}
+
+		// 发送请求 - 使用多个输入参数
+		resp, err := model.GenerateContent(ctx, genai.Text(actualPrompt), fileBlob)
+
+		// 处理错误
+		if err != nil {
+			log.Printf("[ERROR] AI请求失败 (尝试 %d/%d): %v", retryCount+1, maxRetries+1, err)
+
+			// 详细记录错误类型
+			if strings.Contains(err.Error(), "EOF") ||
+				strings.Contains(err.Error(), "Unavailable") ||
+				strings.Contains(err.Error(), "DeadlineExceeded") ||
+				strings.Contains(err.Error(), "timeout") {
+				log.Printf("[ERROR] 连接超时或中断，将在稍后重试")
+				continue // 继续重试
+			}
+
+			// 检查是否为安全策略限制错误
+			if strings.Contains(err.Error(), "safety") || strings.Contains(err.Error(), "blocked") {
+				return "", fmt.Errorf("内容被安全策略限制，无法处理该请求。请尝试不同的文件或描述方式")
+			}
+
+			// 如果是文件解析错误，给出更有用的错误信息
+			if strings.Contains(err.Error(), "unsupported") ||
+				strings.Contains(err.Error(), "invalid") ||
+				strings.Contains(err.Error(), "parse") {
+				log.Printf("[WARN] 可能是文件格式问题，尝试使用仅文本方式")
+
+				// 尝试使用纯文本方式重新请求
+				retryPrompt := actualPrompt + "\n\n[注意：文件处理失败，但我会尽力分析您的请求]"
+
+				resp, err = model.GenerateContent(ctx, genai.Text(retryPrompt))
+				if err != nil {
+					if retryCount < maxRetries {
+						continue // 继续重试
+					}
+					return "", fmt.Errorf("文件处理失败，且文本备用方式也失败: %v", err)
+				}
+			} else {
+				if retryCount < maxRetries {
+					continue // 继续重试
+				}
+				return "", fmt.Errorf("AI服务请求失败: %v", err)
+			}
+		}
+
+		// 检查是否有候选结果
+		if len(resp.Candidates) == 0 {
+			log.Printf("[ERROR] AI未返回任何候选结果 (尝试 %d/%d)", retryCount+1, maxRetries+1)
+			if retryCount < maxRetries {
+				continue // 继续重试
+			}
+			return "", fmt.Errorf("AI未返回任何候选结果")
+		}
+
+		// 检查是否存在封锁内容原因
+		if resp.Candidates[0].FinishReason == genai.FinishReasonSafety {
+			log.Printf("[ERROR] 内容被安全策略限制")
+			return "", fmt.Errorf("内容被安全策略限制")
+		}
+
+		// 检查是否有内容部分
+		if len(resp.Candidates[0].Content.Parts) == 0 {
+			log.Printf("[ERROR] AI返回的候选结果没有内容部分 (尝试 %d/%d)", retryCount+1, maxRetries+1)
+			if retryCount < maxRetries {
+				continue // 继续重试
+			}
+			return "", fmt.Errorf("AI返回的候选结果没有内容部分")
+		}
+
+		// 提取响应文本
+		responseText := ""
+		for _, part := range resp.Candidates[0].Content.Parts {
+			if text, ok := part.(genai.Text); ok {
+				responseText += string(text)
+			}
+		}
+
+		if responseText == "" {
+			log.Printf("[ERROR] AI未返回文本内容 (尝试 %d/%d)", retryCount+1, maxRetries+1)
+			if retryCount < maxRetries {
+				continue // 继续重试
+			}
+			return "", fmt.Errorf("AI未返回文本内容")
+		}
+
+		// 记录响应的预览
+		if len(responseText) > 100 {
+			log.Printf("[DEBUG] AI响应文本前100个字符: %s", responseText[:100])
+		} else {
+			log.Printf("[DEBUG] AI响应文本: %s", responseText)
+		}
+
+		// 处理JSON格式
+		// 如果响应文本看起来是JSON格式，尝试清理和验证
+		if strings.Contains(responseText, "{") || strings.Contains(responseText, "[") {
+			log.Printf("[INFO] 响应看起来包含JSON，尝试处理和验证")
+			// 使用增强版的JSON处理函数
+			sanitizedResponse := sanitizeUTF8(responseText)
+			validJSON := EnsureValidJSON(sanitizedResponse)
+			return validJSON, nil
+		}
+
+		// 如果不是JSON，直接返回原始文本
+		log.Printf("[INFO] 响应不包含JSON结构，返回原始文本")
+		return sanitizeUTF8(responseText), nil
 	}
 
-	// 清理响应中的无效UTF-8字符
-	sanitizedResponse := sanitizeUTF8(responseText)
-
-	return sanitizedResponse, nil
+	// 如果所有重试都失败
+	return "", fmt.Errorf("多次尝试后AI服务仍未返回有效响应")
 }
 
 // 生成模拟的作业批改结果

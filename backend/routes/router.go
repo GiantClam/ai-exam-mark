@@ -3,7 +3,6 @@ package routes
 import (
 	"log"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/GiantClam/homework_marking/handlers"
@@ -15,31 +14,11 @@ import (
 func SetupRouter() *gin.Engine {
 	r := gin.Default()
 
-	// CORS配置 - 使用cors中间件允许所有源访问
+	// 配置 CORS
 	config := cors.DefaultConfig()
-
-	// 允许特定的源或所有源
-	corsOrigin := os.Getenv("CORS_ORIGIN")
-	if corsOrigin != "" {
-		config.AllowOrigins = []string{corsOrigin}
-	} else {
-		// 开发环境下允许常见的本地开发源
-		config.AllowOrigins = []string{
-			"http://localhost:3000",
-			"http://127.0.0.1:3000",
-			"http://localhost:8000",
-		}
-	}
-
+	config.AllowOrigins = []string{"http://localhost:3000", "http://localhost:3001"}
 	config.AllowMethods = []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}
-	config.AllowHeaders = []string{
-		"Origin",
-		"Content-Type",
-		"Content-Length",
-		"Accept-Encoding",
-		"X-CSRF-Token",
-		"Authorization",
-	}
+	config.AllowHeaders = []string{"Origin", "Content-Type", "Accept", "Authorization"}
 	config.AllowCredentials = true
 	r.Use(cors.New(config))
 
@@ -58,8 +37,16 @@ func SetupRouter() *gin.Engine {
 		log.Printf("请求完成: 路径=%s, 状态=%d, 错误=%v", path, status, c.Errors)
 	})
 
-	// 作业批改API
-	r.POST("/api/homework/mark", handlers.MarkHomework)
+	// 作业处理相关路由
+	upload := r.Group("/api/upload")
+	{
+		upload.POST("/homework", handlers.UploadHomework)
+	}
+
+	marking := r.Group("/api/marking")
+	{
+		marking.POST("/homework", handlers.MarkHomework)
+	}
 
 	// 测试API端点
 	r.GET("/api/test", func(c *gin.Context) {
