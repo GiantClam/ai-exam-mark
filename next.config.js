@@ -36,7 +36,7 @@ const nextConfig = {
 
   // API 代理配置
   async rewrites() {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8280';
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
     console.log(`API请求将代理到: ${apiUrl}`);
     
     return [
@@ -46,6 +46,9 @@ const nextConfig = {
       },
     ];
   },
+
+  // 用于生产环境的输出配置
+  output: 'standalone',
 };
 
 module.exports = nextConfig 

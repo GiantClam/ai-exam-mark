@@ -89,6 +89,33 @@
 
 3. 访问 http://localhost:3000
 
+## 部署指南
+
+### 前端部署 (Vercel)
+
+1. Fork或克隆项目到自己的GitHub仓库
+2. 注册或登录[Vercel](https://vercel.com)
+3. 创建新项目并导入GitHub仓库
+4. 配置以下环境变量:
+   - `NEXT_PUBLIC_API_URL`: 后端API的URL地址
+5. 点击部署按钮
+
+Vercel会自动识别Next.js项目并进行适当的构建和部署。部署完成后，您将获得一个可访问的URL。
+
+### 后端部署
+
+后端可以部署在任何支持Go的服务器上，包括:
+
+1. 云服务器 (AWS, GCP, 阿里云等)
+2. 容器平台 (Kubernetes, Docker等)
+3. 无服务器平台 (Cloud Run, AWS Lambda等)
+
+确保:
+- 配置正确的环境变量
+- 开放必要的端口 (默认8080)
+- 设置CORS允许前端域名
+- 配置SSL证书确保HTTPS连接
+
 ## 上传到GitHub前的安全检查
 
 **重要**：在将代码上传到GitHub之前，请确保删除或替换以下敏感信息：

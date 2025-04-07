@@ -1,9 +1,20 @@
-import '../app/globals.css';
+import '@/styles/globals.css';
 import type { AppProps } from 'next/app';
 import Link from 'next/link';
 import { Providers } from '../app/providers';
+import axios from 'axios';
+import { useEffect } from 'react';
+
+// 配置Axios默认行为
+axios.defaults.baseURL = process.env.NEXT_PUBLIC_API_URL || '';
+axios.defaults.headers.common['Content-Type'] = 'application/json';
 
 export default function MyApp({ Component, pageProps }: AppProps) {
+  useEffect(() => {
+    // 记录API请求路径，便于调试
+    console.log(`API请求路径: ${axios.defaults.baseURL || '使用相对路径'}`);
+  }, []);
+
   return (
     <Providers>
       <div className="min-h-screen flex flex-col">
