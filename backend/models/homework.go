@@ -26,6 +26,7 @@ type APIResponse struct {
 	Success bool        `json:"success"`
 	Error   string      `json:"error,omitempty"`
 	Result  interface{} `json:"result,omitempty"`
+	Data    interface{} `json:"data,omitempty"`
 }
 
 // Answer 表示一个答案的结构

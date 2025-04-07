@@ -1,123 +1,123 @@
-# AI Exam Mark System
+# AI 作业批改系统
 
-A homework marking system built with Next.js and Go, supporting handwritten text recognition and automatic scoring.
+这是一个基于人工智能的作业批改系统，支持自动分析和评分学生提交的作业。系统可以处理多种科目的作业，包括英语、语文和数学等。
 
-## Features
+## 主要功能
 
-- Upload homework images
-- Automatic handwritten text recognition
-- Support for single-column and double-column exam layouts
-- Real-time preview and feedback
-- Responsive design
+- 支持上传PDF或图片格式的作业文件
+- 自动识别作业内容并进行智能批改
+- 支持多种布局方式（单栏、双栏）
+- 支持多种科目（通用、数学、英语、语文）
+- 异步处理作业，实时显示处理进度
+- 显示详细的批改结果，包括每道题的评价
 
-## Tech Stack
+## 技术栈
 
-### Frontend
-- Next.js 14
-- React 18
+### 前端
+- Next.js/React
 - TypeScript
-- Tailwind CSS
-- shadcn/ui
+- Ant Design UI库
+- Axios用于API通信
+- Tailwind CSS样式库
 
-### Backend
-- Go
-- Gin Framework
-- Google Cloud Vision API
-- Gemini API
+### 后端
+- Go语言
+- Gin Web框架
+- Google Vertex AI (Gemini模型)用于AI分析
+- JWT认证
 
-## Local Development
+## 项目结构
 
-### Prerequisites
+```
+/
+├── backend/                # Go后端服务
+│   ├── handlers/           # 请求处理器
+│   ├── services/           # 业务逻辑
+│   ├── utils/              # 工具函数
+│   ├── routes/             # API路由
+│   └── main.go             # 程序入口
+├── src/                    # 前端React代码
+│   ├── components/         # 可复用组件
+│   └── pages/              # 页面组件
+├── public/                 # 静态资源
+└── README.md               # 项目说明
+```
+
+## 安装与运行
+
+### 前提条件
 
 - Node.js 18+
 - Go 1.20+
-- npm or yarn
-- Google Cloud account and credentials
+- Google Cloud账号和项目（用于Vertex AI）
 
-### Installation Steps
+### 后端设置
 
-1. Clone the repository
-```bash
-git clone https://github.com/yourusername/homework-marking.git
-cd homework-marking
-```
+1. 进入后端目录：
+   ```bash
+   cd backend
+   ```
 
-2. Install frontend dependencies
-```bash
-npm install
-```
+2. 安装依赖：
+   ```bash
+   go mod download
+   ```
 
-3. Install backend dependencies
-```bash
-cd backend
-go mod download
-cd ..
-```
+3. 配置环境变量：
+   ```bash
+   cp .env.example .env
+   ```
+   
+4. 修改`.env`文件，填入必要的配置信息，尤其是Google Cloud项目信息和凭证路径。
 
-4. Configure environment variables
-```bash
-# Copy environment variable example files
-cp .env.example .env.local
-cp backend/.env.example backend/.env
+5. 启动后端服务：
+   ```bash
+   ./start-dev.sh
+   ```
 
-# Edit the environment variable files with your configuration
-```
+### 前端设置
 
-5. Configure Google Cloud credentials
-- Place your Google Cloud service account key file in the `backend` directory
-- Update the `GOOGLE_APPLICATION_CREDENTIALS` path in `backend/.env`
+1. 安装依赖：
+   ```bash
+   npm install
+   ```
 
-6. Start development servers
-```bash
-# Start backend service
-cd backend
-./run_server.sh
+2. 启动开发服务器：
+   ```bash
+   npm run dev
+   ```
 
-# In a new terminal, start frontend service
-npm run dev
-```
+3. 访问 http://localhost:3000
 
-Visit http://localhost:3000 to view the application
+## 上传到GitHub前的安全检查
 
-## Deployment
+**重要**：在将代码上传到GitHub之前，请确保删除或替换以下敏感信息：
 
-### Frontend Deployment (Vercel)
+1. **Google Cloud凭证文件**:
+   - 删除`backend/zippy-aurora-444204-q2-83e9a4179999.json`
+   - 删除`backend/test-credentials.json`
+   - 将这些文件添加到`.gitignore`
 
-1. Create a new project on Vercel
-2. Import the GitHub repository
-3. Configure environment variables
-4. Deploy
+2. **JWT密钥**:
+   - 修改`backend/utils/jwt.go`中的`jwtKey`变量，使用环境变量代替硬编码的密钥
 
-### Backend Deployment
+3. **环境变量文件**:
+   - 移除`.env`文件（保留`.env.example`作为模板）
+   - 确保`.env`和`.env.production`已添加到`.gitignore`
 
-1. Prepare server environment
-2. Configure environment variables
-3. Compile and run the backend service
+4. **代理和敏感URL**:
+   - 检查并移除本地代理设置
+   - 移除任何内部URL或API端点
 
-## Project Structure
+## 使用示例
 
-```
-homework-marking/
-├── frontend/           # Next.js frontend application
-│   ├── src/           # Source code
-│   ├── public/        # Static assets
-│   └── package.json   # Frontend dependencies
-├── backend/           # Go backend service
-│   ├── cmd/          # Main program entry
-│   ├── handlers/     # Request handlers
-│   ├── models/       # Data models
-│   └── services/     # Business logic
-└── README.md         # Project documentation
-```
+1. 打开系统首页
+2. 选择要上传的作业文件（PDF或图片）
+3. 选择作业类型、布局方式和每个学生的页数
+4. 点击"上传并开始批改"按钮
+5. 系统将开始处理作业并显示进度
+6. 批改完成后，系统会显示详细的评分结果和反馈
 
-## Contributing
+## 许可证
 
-1. Fork the project
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
-## License
-
-MIT License - See LICENSE file for details 
+MIT License 

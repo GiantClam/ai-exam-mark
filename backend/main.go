@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"unicode/utf16"
+	"bytes"
+	"io/ioutil"
 
 	"github.com/GiantClam/homework_marking/routes"
 	"github.com/GiantClam/homework_marking/services"
@@ -50,6 +53,67 @@ func syncProxyEnvVars() {
 	}
 }
 
+// 检测文件是否为UTF-16编码，并转换为UTF-8
+func convertUTF16ToUTF8(filename string) (string, error) {
+	// 读取文件内容
+	content, err := ioutil.ReadFile(filename)
+	if err != nil {
+		return "", err
+	}
+
+	// 检查是否包含BOM(字节顺序标记)
+	if len(content) >= 2 {
+		// UTF-16LE BOM: 0xFF 0xFE
+		if content[0] == 0xFF && content[1] == 0xFE {
+			log.Printf("检测到UTF-16LE编码的文件: %s", filename)
+			
+			// 创建临时文件名
+			tmpFilename := filename + ".utf8"
+			
+			// 移除BOM，并确保字节数是偶数
+			content = content[2:]
+			if len(content)%2 != 0 {
+				content = content[:len(content)-1]
+			}
+			
+			// 将UTF-16LE转换为UTF-8
+			u16s := make([]uint16, len(content)/2)
+			for i := 0; i < len(u16s); i++ {
+				u16s[i] = uint16(content[i*2]) + (uint16(content[i*2+1]) << 8)
+			}
+			
+			// 转换回UTF-8
+			var buf bytes.Buffer
+			for _, r := range utf16.Decode(u16s) {
+				buf.WriteRune(r)
+			}
+			
+			// 写入转换后的文件
+			if err := ioutil.WriteFile(tmpFilename, buf.Bytes(), 0644); err != nil {
+				return "", fmt.Errorf("无法写入转换后的UTF-8文件: %v", err)
+			}
+			
+			log.Printf("已将文件转换为UTF-8: %s", tmpFilename)
+			return tmpFilename, nil
+		}
+	}
+	
+	// 不是UTF-16，返回原始文件名
+	return filename, nil
+}
+
+// 加载环境变量文件
+func loadEnvFile(filename string) error {
+	// 首先尝试转换文件编码
+	utf8Filename, err := convertUTF16ToUTF8(filename)
+	if err != nil {
+		return fmt.Errorf("转换文件编码失败: %v", err)
+	}
+	
+	// 使用转换后的文件加载环境变量
+	return godotenv.Load(utf8Filename)
+}
+
 func main() {
 	// 设置日志格式
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
@@ -58,12 +122,33 @@ func main() {
 	// 首先同步代理环境变量
 	syncProxyEnvVars()
 
-	// 优先加载.env文件中的环境变量
+	// 检查并优先加载.env文件中的环境变量
 	log.Println("加载环境变量配置...")
-	if err := godotenv.Load(); err != nil {
-		log.Println("警告: 未找到.env文件或无法加载，使用系统环境变量")
-	} else {
-		log.Println("成功加载.env文件")
+	
+	// 定义可能的环境文件列表，按优先级排序
+	envFiles := []string{".env", ".env.production", ".env.example"}
+	
+	var loadedFile string
+	var err error
+	
+	// 检查文件是否存在
+	for _, file := range envFiles {
+		if _, statErr := os.Stat(file); statErr == nil {
+			// 文件存在，尝试加载
+			if loadErr := loadEnvFile(file); loadErr == nil {
+				loadedFile = file
+				log.Printf("成功加载环境变量文件: %s", file)
+				break
+			} else {
+				err = loadErr
+				log.Printf("警告: 无法加载环境变量文件 %s: %v", file, loadErr)
+			}
+		}
+	}
+	
+	// 如果没有成功加载任何文件
+	if loadedFile == "" {
+		log.Println("警告: 未找到有效的环境变量文件(.env, .env.production, .env.example)或无法加载，使用系统环境变量")
 	}
 
 	// 记录是否启用模拟模式 (加载.env后检查)
@@ -104,6 +189,14 @@ func main() {
 	if err := os.MkdirAll("uploads", 0755); err != nil {
 		log.Fatalf("创建上传目录失败: %v", err)
 	}
+	log.Println("[INFO] 上传目录已就绪: uploads")
+	
+	// 确保分割文件目录存在
+	splitDir := "uploads/split"
+	if err := os.MkdirAll(splitDir, 0755); err != nil {
+		log.Fatalf("创建分割文件目录失败: %v", err)
+	}
+	log.Println("[INFO] 分割文件目录已就绪: uploads\\split")
 
 	// 设置Gin模式
 	ginMode := os.Getenv("GIN_MODE")
@@ -111,8 +204,16 @@ func main() {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
+	// 初始化Gemini服务
+	log.Println("初始化Gemini服务...")
+	geminiService, err := services.NewGeminiService()
+	if err != nil {
+		log.Fatalf("创建Gemini服务失败: %v", err)
+	}
+	log.Println("Gemini服务初始化成功")
+
 	// 使用路由模块配置路由
-	r := routes.SetupRouter()
+	r := routes.SetupRouter(geminiService)
 
 	// 确定端口
 	port := os.Getenv("PORT")

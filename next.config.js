@@ -36,10 +36,13 @@ const nextConfig = {
 
   // API 代理配置
   async rewrites() {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8280';
+    console.log(`API请求将代理到: ${apiUrl}`);
+    
     return [
       {
         source: '/api/:path*',
-        destination: 'http://localhost:8280/api/:path*',
+        destination: `${apiUrl}/api/:path*`,
       },
     ];
   },

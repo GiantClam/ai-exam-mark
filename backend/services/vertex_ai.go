@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,7 +33,7 @@ func NewVertexAIClient() *VertexAIClient {
 	return &VertexAIClient{
 		projectID: os.Getenv("GOOGLE_CLOUD_PROJECT"),
 		location:  os.Getenv("GOOGLE_CLOUD_LOCATION"),
-		model:     "gemini-2.0-pro-exp-02-05", // 使用Gemini模型
+		model:     "gemini-2.0-flash-001", // 使用支持多模态（图像和PDF）的Gemini模型
 	}
 }
 
@@ -169,8 +170,7 @@ func (c *VertexAIClient) GenerateContent(systemInstruction, textPrompt string) (
 	temperature := float32(0.2)
 	topP := float32(0.8)
 	topK := int32(40)
-	maxOutputTokens := int32(4096)
-
+	maxOutputTokens := int32(8192)
 	model.Temperature = &temperature
 	model.TopP = &topP
 	model.TopK = &topK
@@ -261,6 +261,12 @@ func (c *VertexAIClient) GenerateContentWithFile(systemInstruction, filePath, mi
 	log.Printf("[DEBUG] MIME类型: %s", mimeType)
 	log.Printf("[DEBUG] 文本提示词长度: %d 字符", len(textPrompt))
 
+	// 检查模拟模式
+	if UseMockMode {
+		log.Printf("[INFO] 使用模拟模式，将生成模拟响应")
+		return GenerateMockHomeworkResult(filePath, textPrompt)
+	}
+
 	// 检查文件是否存在和可访问
 	fileInfo, err := os.Stat(filePath)
 	if err != nil {
@@ -272,13 +278,38 @@ func (c *VertexAIClient) GenerateContentWithFile(systemInstruction, filePath, mi
 	fileName := filepath.Base(filePath)
 	log.Printf("[INFO] 文件名: %s, 大小: %d 字节", fileName, fileInfo.Size())
 
-	// 如果文件是PDF，尝试获取页数
+	// 检查API凭证
+	credFile := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
+	if credFile == "" {
+		log.Printf("[ERROR] 未设置GOOGLE_APPLICATION_CREDENTIALS环境变量")
+		return "", fmt.Errorf("未设置GOOGLE_APPLICATION_CREDENTIALS环境变量")
+	}
+	
+	// 检查凭证文件是否存在
+	if _, err := os.Stat(credFile); os.IsNotExist(err) {
+		log.Printf("[ERROR] API凭证文件不存在: %s", credFile)
+		return "", fmt.Errorf("API凭证文件不存在: %s", credFile)
+	}
+	
+	log.Printf("[INFO] 使用API凭证文件: %s", credFile)
+
+	// 尝试读取文件内容，确保可读
+	fileContent, readErr := os.ReadFile(filePath)
+	if readErr != nil {
+		log.Printf("[ERROR] 无法读取文件内容: %v", readErr)
+		return "", fmt.Errorf("无法读取文件内容: %v", readErr)
+	}
+	
+	log.Printf("[INFO] 成功读取文件内容，大小: %d 字节", len(fileContent))
+	
+	// 如果是PDF，检查文件是否有效
 	if strings.HasSuffix(fileName, ".pdf") {
+		// 尝试获取页数作为验证PDF有效性的方式
 		pageCount, err := api.PageCountFile(filePath)
 		if err != nil {
-			log.Printf("[WARN] 无法获取PDF页数: %v", err)
+			log.Printf("[WARN] PDF验证失败，可能不是有效PDF文件: %v", err)
 		} else {
-			log.Printf("[INFO] PDF文件页数: %d", pageCount)
+			log.Printf("[INFO] PDF文件有效，页数: %d", pageCount)
 			if pageCount > 1 {
 				// 如果PDF有多页，修改提示词，指示大模型分析所有页面
 				log.Printf("[INFO] 检测到多页PDF，修改提示词以分析所有 %d 页", pageCount)
@@ -303,7 +334,7 @@ func (c *VertexAIClient) GenerateContentWithFile(systemInstruction, filePath, mi
 		defer cancel()
 
 		// 创建客户端
-		client, err := genai.NewClient(ctx, c.projectID, c.location, option.WithCredentialsFile(os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")))
+		client, err := genai.NewClient(ctx, c.projectID, c.location, option.WithCredentialsFile(credFile))
 		if err != nil {
 			log.Printf("[ERROR] 创建AI客户端失败: %v", err)
 			continue // 重试
@@ -317,7 +348,7 @@ func (c *VertexAIClient) GenerateContentWithFile(systemInstruction, filePath, mi
 		temperature := float32(0.2)
 		topP := float32(0.8)
 		topK := int32(40)
-		maxOutputTokens := int32(4096)
+		maxOutputTokens := int32(8192)
 
 		model.Temperature = &temperature
 		model.TopP = &topP
@@ -332,13 +363,6 @@ func (c *VertexAIClient) GenerateContentWithFile(systemInstruction, filePath, mi
 			}
 		}
 
-		// 读取文件内容
-		fileData, err := os.ReadFile(filePath)
-		if err != nil {
-			log.Printf("[ERROR] 读取文件内容失败: %v", err)
-			return "", fmt.Errorf("读取文件内容失败: %v", err)
-		}
-
 		// 如果重试，修改提示词
 		actualPrompt := textPrompt
 		if retryCount > 0 {
@@ -350,7 +374,7 @@ func (c *VertexAIClient) GenerateContentWithFile(systemInstruction, filePath, mi
 		// 创建文件blob
 		fileBlob := genai.Blob{
 			MIMEType: mimeType,
-			Data:     fileData,
+			Data:     fileContent,
 		}
 
 		// 发送请求 - 使用多个输入参数
@@ -465,7 +489,7 @@ func (c *VertexAIClient) GenerateContentWithFile(systemInstruction, filePath, mi
 }
 
 // 生成模拟的作业批改结果
-func generateMockHomeworkResult(filePath, textPrompt string) (string, error) {
+func GenerateMockHomeworkResult(filePath, textPrompt string) (string, error) {
 	fileName := filepath.Base(filePath)
 	homeworkType := "未知"
 
@@ -478,112 +502,200 @@ func generateMockHomeworkResult(filePath, textPrompt string) (string, error) {
 		homeworkType = "语文"
 	}
 
-	// 根据作业类型生成不同的模拟结果
-	var mockResult string
-	switch homeworkType {
-	case "英语":
-		mockResult = `{
-  "answers": [
+	log.Printf("[INFO] 生成模拟作业批改结果，文件: %s, 类型: %s", fileName, homeworkType)
+
+	// 生成随机数量的学生结果（1-3名学生）
+	numStudents := rand.Intn(3) + 1
+	
+	// 创建学生结果数组
+	studentResults := make([]string, numStudents)
+	
+	// 基础名字列表
+	baseNames := []string{"张三", "李四", "王五", "赵六", "钱七"}
+	
+	// 为每个学生生成模拟结果
+	for i := 0; i < numStudents; i++ {
+		// 获取学生姓名
+		studentName := baseNames[rand.Intn(len(baseNames))]
+		
+		// 根据作业类型生成不同的模拟结果
+		var studentResult string
+		
+		switch homeworkType {
+		case "英语":
+			// 生成随机分数
+			score := 70 + rand.Intn(30)
+			
+			// 生成答案数组
+			correctCount := 2 + rand.Intn(2) // 2-3个正确答案
+			totalQuestions := 4 + rand.Intn(2) // 4-5个总题目
+			
+			answers := []string{}
+			for j := 1; j <= totalQuestions; j++ {
+				isCorrect := j <= correctCount // 前N题为正确答案
+				
+				if isCorrect {
+					answer := fmt.Sprintf(`
     {
-      "questionNumber": "1",
-      "studentAnswer": "He is a doctor",
+      "questionNumber": "%d",
+      "studentAnswer": "This is a correct answer for question %d",
       "isCorrect": true,
-      "explanation": "正确回答了问题，语法正确"
-    },
+      "explanation": "答案正确，表达流畅"
+    }`, j, j)
+					answers = append(answers, answer)
+				} else {
+					answer := fmt.Sprintf(`
     {
-      "questionNumber": "2",
-      "studentAnswer": "They are student",
+      "questionNumber": "%d",
+      "studentAnswer": "This is an incorrect answer for question %d",
       "isCorrect": false,
-      "correctAnswer": "They are students",
-      "explanation": "名词复数形式错误，应该是students"
-    },
-    {
-      "questionNumber": "3",
-      "studentAnswer": "I am 12 years old",
-      "isCorrect": true,
-      "explanation": "年龄表达正确"
-    }
+      "correctAnswer": "The correct answer for question %d",
+      "explanation": "答案有误，需要改进"
+    }`, j, j, j)
+					answers = append(answers, answer)
+				}
+			}
+			
+			// 合并成完整的学生结果
+			studentResult = fmt.Sprintf(`{
+  "name": "%s",
+  "answers": [%s
   ],
-  "overallScore": "85分",
-  "feedback": "大部分题目回答正确，但需要注意名词的单复数形式。继续加油！"
-}`
-	case "数学":
-		mockResult = `{
-  "answers": [
+  "overallScore": "%d",
+  "feedback": "英语作业完成良好，发音和语法有待提高。继续练习！"
+}`, studentName, strings.Join(answers, ","), score)
+
+		case "数学":
+			// 生成随机分数
+			score := 75 + rand.Intn(25)
+			
+			// 生成答案数组
+			correctCount := 3 + rand.Intn(3) // 3-5个正确答案
+			totalQuestions := 6 + rand.Intn(3) // 6-8个总题目
+			
+			answers := []string{}
+			for j := 1; j <= totalQuestions; j++ {
+				isCorrect := j <= correctCount // 前N题为正确答案
+				
+				if isCorrect {
+					answer := fmt.Sprintf(`
     {
-      "questionNumber": "1",
-      "studentAnswer": "x = 5",
+      "questionNumber": "%d",
+      "studentAnswer": "x = %d",
       "isCorrect": true,
-      "explanation": "解方程步骤正确，得到了正确答案"
-    },
+      "explanation": "计算正确，方法得当"
+    }`, j, 2*j)
+					answers = append(answers, answer)
+				} else {
+					correctValue := 2 * j
+					wrongValue := correctValue + 1 + rand.Intn(3)
+					answer := fmt.Sprintf(`
     {
-      "questionNumber": "2",
-      "studentAnswer": "30平方厘米",
+      "questionNumber": "%d",
+      "studentAnswer": "x = %d",
       "isCorrect": false,
-      "correctAnswer": "28平方厘米",
-      "correctSteps": "长4厘米，宽7厘米，面积=4×7=28平方厘米",
-      "explanation": "计算错误，4×7=28，不是30"
-    },
+      "correctAnswer": "x = %d",
+      "explanation": "计算有误，应为%d"
+    }`, j, wrongValue, correctValue, correctValue)
+					answers = append(answers, answer)
+				}
+			}
+			
+			// 合并成完整的学生结果
+			studentResult = fmt.Sprintf(`{
+  "name": "%s",
+  "answers": [%s
+  ],
+  "overallScore": "%d",
+  "feedback": "数学作业基本掌握了概念，但计算需要更加仔细。多做练习，提高准确性。"
+}`, studentName, strings.Join(answers, ","), score)
+
+		case "语文":
+			// 生成随机分数
+			score := 80 + rand.Intn(20)
+			
+			// 生成答案数组
+			correctCount := 2 + rand.Intn(2) // 2-3个正确答案
+			totalQuestions := 4 + rand.Intn(2) // 4-5个总题目
+			
+			answers := []string{}
+			for j := 1; j <= totalQuestions; j++ {
+				if j <= correctCount {
+					answer := fmt.Sprintf(`
     {
-      "questionNumber": "3",
-      "studentAnswer": "64",
+      "questionNumber": "%d",
+      "studentAnswer": "语文题目%d的正确回答",
       "isCorrect": true,
-      "explanation": "计算8的平方正确"
-    }
+      "evaluation": "理解深刻，表达流畅",
+      "suggestion": "可以再增加一些文学性的表达"
+    }`, j, j)
+					answers = append(answers, answer)
+				} else {
+					answer := fmt.Sprintf(`
+    {
+      "questionNumber": "%d",
+      "studentAnswer": "语文题目%d的不完全正确回答",
+      "isCorrect": false,
+      "correctAnswer": "语文题目%d的标准答案",
+      "evaluation": "基本理解了题意，但表达不够准确",
+      "suggestion": "需要注意遣词造句，提高表达准确性"
+    }`, j, j, j)
+					answers = append(answers, answer)
+				}
+			}
+			
+			// 合并成完整的学生结果
+			studentResult = fmt.Sprintf(`{
+  "name": "%s",
+  "answers": [%s
   ],
-  "overallScore": "80分",
-  "feedback": "基本掌握了数学概念，但计算时需要更加仔细，避免计算错误。"
-}`
-	case "语文":
-		mockResult = `{
-  "answers": [
-    {
-      "questionNumber": "1",
-      "studentAnswer": "春风又绿江南岸，明月何时照我还",
-      "evaluation": "背诵正确，没有错别字",
-      "suggestion": "可以理解诗句中流露的思乡之情"
-    },
-    {
-      "questionNumber": "2",
-      "studentAnswer": "欲穷千里目，更上一层天",
-      "evaluation": "有错别字，'天'应为'楼'",
-      "suggestion": "注意背诵准确性，理解'更上一层楼'意境"
-    },
-    {
-      "questionNumber": "3",
-      "studentAnswer": "这篇文章主要讲述了作者童年的回忆",
-      "evaluation": "理解文章主题正确，但表达不够具体",
-      "suggestion": "可以加入具体事例，指出文章中的关键情节"
-    }
-  ],
-  "overallScore": "88分",
-  "feedback": "整体表现不错，对文学作品有一定理解，但背诵古诗词需要更加准确，作答时可以再具体一些。"
-}`
-	default:
-		mockResult = `{
+  "overallScore": "%d",
+  "feedback": "语文作业整体表现良好，对文章主旨理解到位，但词句表达有待提高。"
+}`, studentName, strings.Join(answers, ","), score)
+
+		default:
+			// 通用题目
+			score := 75 + rand.Intn(25)
+			studentResult = fmt.Sprintf(`{
+  "name": "%s",
   "answers": [
     {
       "questionNumber": "1",
       "studentAnswer": "这是学生的第一个回答",
+      "isCorrect": true,
       "evaluation": "回答基本正确"
     },
     {
       "questionNumber": "2",
       "studentAnswer": "这是学生的第二个回答",
+      "isCorrect": false,
+      "correctAnswer": "标准答案",
       "evaluation": "有一些小错误需要修正"
     },
     {
       "questionNumber": "3",
       "studentAnswer": "这是学生的第三个回答",
+      "isCorrect": true,
       "evaluation": "回答完全正确"
     }
   ],
+  "overallScore": "%d",
   "feedback": "学生整体表现良好，需要在细节上多加注意。"
-}`
+}`, studentName, score)
+		}
+		
+		studentResults[i] = studentResult
 	}
-
-	log.Printf("[INFO] 生成模拟作业批改结果，文件: %s, 类型: %s", fileName, homeworkType)
-	return mockResult, nil
+	
+	// 生成整体结果：如果只有一个学生，直接返回；如果有多个学生，放在数组中
+	if numStudents == 1 {
+		log.Printf("[INFO] 生成单个学生的作业批改结果")
+		return studentResults[0], nil
+	} else {
+		finalResult := fmt.Sprintf("[%s]", strings.Join(studentResults, ",\n"))
+		log.Printf("[INFO] 生成了 %d 名学生的作业批改结果", numStudents)
+		return finalResult, nil
+	}
 }
 
 // GenerateContentStream 使用Vertex AI流式生成内容
@@ -643,7 +755,7 @@ func (c *VertexAIClient) GenerateContentStream(ctx context.Context, systemInstru
 	topP := float32(0.7)
 	topK := int32(30)
 	// 减少最大输出 token 数，避免过长导致截断
-	maxOutputTokens := int32(4096)
+	maxOutputTokens := int32(8192)
 
 	// 直接在模型上设置参数
 	model.Temperature = &temperature
