@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Upload, Form, Select, InputNumber, Button, message, Card, Typography, Spin, Divider, Result, Tag, List, Collapse, Progress } from 'antd';
-import { InboxOutlined, CheckCircleOutlined } from '@ant-design/icons';
+import { InboxOutlined, CheckCircleOutlined, DownloadOutlined } from '@ant-design/icons';
 import type { UploadProps, UploadFile } from 'antd';
 import axios from 'axios';
+import * as XLSX from 'xlsx';
 
 const { Dragger } = Upload;
 const { Title, Paragraph, Text } = Typography;
@@ -809,6 +810,78 @@ const Homework: React.FC = () => {
     setDisplayResults(false);
   };
 
+  // 添加导出Excel功能
+  const handleDownloadExcel = () => {
+    if (!studentResults || studentResults.length === 0) {
+      message.error('没有可下载的批改结果');
+      return;
+    }
+
+    try {
+      const fileName = '作业批改结果.xlsx';
+      const workbook = XLSX.utils.book_new();
+      
+      // 创建总览表
+      const overviewData = studentResults.map((student, index) => {
+        return {
+          '序号': index + 1,
+          '学生姓名': student.name || `学生${index + 1}`,
+          '班级': student.class || 'N/A',
+          '总分': student.score || 'N/A',
+          '正确题数': student.correctCount || 0,
+          '总题数': student.totalQuestions || 0,
+          '正确率': student.totalQuestions ? `${((student.correctCount / student.totalQuestions) * 100).toFixed(1)}%` : 'N/A',
+          '总体评价': student.feedback || 'N/A'
+        };
+      });
+      
+      const overviewSheet = XLSX.utils.json_to_sheet(overviewData);
+      XLSX.utils.book_append_sheet(workbook, overviewSheet, '总览');
+      
+      // 为每个学生创建详细表
+      studentResults.forEach((student, index) => {
+        const studentName = student.name || `学生${index + 1}`;
+        
+        // 准备学生答案数据
+        let answerData: Record<string, any>[] = [];
+        if (student.answers && student.answers.length > 0) {
+          answerData = student.answers.map(answer => {
+            const baseData: Record<string, any> = {
+              '题号': answer.questionNumber || 'N/A',
+              '学生答案': answer.studentAnswer || 'N/A',
+              '是否正确': answer.isCorrect ? '是' : '否'
+            };
+            
+            // 如果有标准答案，添加进来
+            if (!answer.isCorrect && answer.correctAnswer) {
+              baseData['标准答案'] = answer.correctAnswer;
+            }
+            
+            // 如果有解释，添加进来
+            if (answer.explanation) {
+              baseData['解释/评价'] = answer.explanation;
+            }
+            
+            return baseData;
+          });
+        }
+        
+        // 如果有答案数据，添加到工作簿
+        if (answerData.length > 0) {
+          const answersSheet = XLSX.utils.json_to_sheet(answerData);
+          XLSX.utils.book_append_sheet(workbook, answersSheet, studentName.substring(0, 31)); // Excel的工作表名称最长为31个字符
+        }
+      });
+      
+      // 导出Excel文件
+      XLSX.writeFile(workbook, fileName);
+      message.success('批改结果已成功导出为Excel文件');
+    } catch (error) {
+      console.error('导出Excel时出错:', error);
+      message.error('导出Excel失败，请重试');
+    }
+  };
+
   const renderResults = () => {
     if (loading) {
       return (
@@ -841,9 +914,18 @@ const Homework: React.FC = () => {
       <div style={{ marginTop: 16 }}>
         {studentResults.length > 0 ? (
           <div>
-            <Paragraph>
-              <Text strong>批改完成！共 {studentResults.length} 名学生的作业结果</Text>
-            </Paragraph>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <Paragraph style={{ margin: 0 }}>
+                <Text strong>批改完成！共 {studentResults.length} 名学生的作业结果</Text>
+              </Paragraph>
+              <Button
+                type="primary"
+                icon={<DownloadOutlined />}
+                onClick={handleDownloadExcel}
+              >
+                下载批改结果
+              </Button>
+            </div>
             <Collapse 
               onChange={(key) => setActiveKey(key)} 
               activeKey={activeKey}
@@ -918,9 +1000,16 @@ const Homework: React.FC = () => {
                 )
               }))}
             />
-            <div style={{ marginTop: 16 }}>
+            <div style={{ marginTop: 16, display: 'flex', gap: '10px' }}>
               <Button type="primary" onClick={() => {resetForm(); setDisplayResults(false);}} >
                 重新上传
+              </Button>
+              <Button
+                type="default"
+                icon={<DownloadOutlined />}
+                onClick={handleDownloadExcel}
+              >
+                下载批改结果
               </Button>
             </div>
           </div>
