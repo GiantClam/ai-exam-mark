@@ -109,10 +109,10 @@ func (h *HomeworkHandler) UploadHomework(c *gin.Context) {
 
 	// 获取作业类型
 	homeworkType := c.DefaultPostForm("type", "general")
-	
+
 	// 获取自定义提示词
 	customPrompt := c.DefaultPostForm("prompt", "")
-	
+
 	// 获取每个学生的页数
 	pagesPerStudent := 1
 	if pagesPerStudentStr := c.DefaultPostForm("pagesPerStudent", "1"); pagesPerStudentStr != "" {
@@ -120,7 +120,7 @@ func (h *HomeworkHandler) UploadHomework(c *gin.Context) {
 			pagesPerStudent = pages
 		}
 	}
-	
+
 	// 获取布局方式
 	layout := c.DefaultPostForm("layout", "single")
 
@@ -141,12 +141,12 @@ func (h *HomeworkHandler) UploadHomework(c *gin.Context) {
 
 	// 创建异步任务
 	taskID := h.taskQueue.CreateTask("homework_processing", "正在处理文件...")
-	
+
 	// 立即返回任务ID
 	c.JSON(http.StatusOK, models.APIResponse{
 		Success: true,
 		Data: gin.H{
-			"taskId": taskID,
+			"taskId":  taskID,
 			"message": "文件上传成功，正在处理中...",
 		},
 	})
@@ -170,16 +170,16 @@ func (h *HomeworkHandler) UploadHomework(c *gin.Context) {
 		if extension == ".pdf" {
 			// PDF处理逻辑
 			_, err = h.processPDFHomework(uploadPath, homeworkType, customPrompt, pagesPerStudent, layout)
-	} else {
+		} else {
 			// 图片处理逻辑
 			_, err = h.processImageHomework(uploadPath, homeworkType, customPrompt)
-	}
+		}
 
-	if err != nil {
-		log.Printf("[ERROR] 处理文件失败: %v", err)
+		if err != nil {
+			log.Printf("[ERROR] 处理文件失败: %v", err)
 			h.taskQueue.UpdateTaskStatus(taskID, "error", fmt.Sprintf("处理文件失败: %v", err))
-		return
-	}
+			return
+		}
 
 		// 更新任务状态为完成
 		//h.taskQueue.UpdateTaskStatus(taskID, "completed", result)
@@ -190,7 +190,7 @@ func (h *HomeworkHandler) UploadHomework(c *gin.Context) {
 func (h *HomeworkHandler) processPDFHomework(pdfPath, homeworkType, customPrompt string, pagesPerStudent int, layout string) (string, error) {
 	// 实现PDF处理逻辑
 	log.Printf("[INFO] 处理PDF作业: %s, 类型: %s", pdfPath, homeworkType)
-	
+
 	// 创建任务记录
 	taskID := h.taskQueue.CreateTask("pdf_processing", "正在处理PDF文件...")
 
@@ -201,36 +201,36 @@ func (h *HomeworkHandler) processPDFHomework(pdfPath, homeworkType, customPrompt
 		h.taskQueue.FailTask(taskID, errMsg)
 		return "", fmt.Errorf(errMsg)
 	}
-	
+
 	// 创建AI客户端
 	client := services.NewVertexAIClient()
-	
+
 	// 获取系统指令
 	systemInstruction := getSystemInstructionByType(homeworkType)
-	
+
 	// 创建临时目录用于分割的PDF文件
 	splitDir := filepath.Join("uploads", "split")
-	
+
 	// 按照学生页数拆分PDF
 	studentPDFs, err := services.SplitPDF(pdfPath, pagesPerStudent, splitDir)
-					if err != nil {
+	if err != nil {
 		errMsg := fmt.Sprintf("拆分PDF失败: %v", err)
 		log.Printf("[ERROR] %s", errMsg)
 		h.taskQueue.FailTask(taskID, errMsg)
 		return "", fmt.Errorf(errMsg)
 	}
-	
+
 	// 更新任务状态
 	totalStudents := len(studentPDFs)
 	h.taskQueue.UpdateTaskStatus(taskID, "processing", fmt.Sprintf("正在处理，总共%d个学生", totalStudents))
 	h.taskQueue.UpdateTaskTotalStudents(taskID, totalStudents)
-	
+
 	// 用于保存每个学生的处理结果
 	var results []string
-	
+
 	// 处理每个学生的PDF
 	processedCount := 0
-	
+
 	for studentIdx, studentPDF := range studentPDFs {
 		// 为每个学生创建AI分析任务
 		go func(studentIdx int, pdfPath string) {
@@ -239,31 +239,31 @@ func (h *HomeworkHandler) processPDFHomework(pdfPath, homeworkType, customPrompt
 					log.Printf("[ERROR] 处理学生作业时发生panic: %v", r)
 				}
 			}()
-			
+
 			// 处理单个学生的作业
 			log.Printf("[INFO] 开始处理学生 %d 的作业: %s", studentIdx+1, pdfPath)
-			
+
 			// 设置提示词
 			textPrompt := customPrompt
 			if textPrompt == "" {
-				textPrompt = fmt.Sprintf("这是一份%s作业，请分析PDF中的内容。这是学生%d的作业。请从上到下处理，整理所有答案。", 
+				textPrompt = fmt.Sprintf("这是一份%s作业，请分析PDF中的内容。这是学生%d的作业。请从上到下处理，整理所有答案。",
 					homeworkType, studentIdx+1)
 			}
-			
+
 			// 调用AI模型分析PDF（添加重试机制）
 			var response string
 			var err error
 			maxRetries := 3
-			
+
 			for attempt := 0; attempt <= maxRetries; attempt++ {
 				if attempt > 0 {
-					log.Printf("[INFO] 第%d次重试调用大模型处理学生%d的PDF...", 
+					log.Printf("[INFO] 第%d次重试调用大模型处理学生%d的PDF...",
 						attempt, studentIdx+1)
 					// 指数退避策略
-					backoffTime := time.Duration(attempt * attempt) * time.Second
+					backoffTime := time.Duration(attempt*attempt) * time.Second
 					time.Sleep(backoffTime)
 				}
-				
+
 				// 模拟模式下返回测试数据
 				if services.UseMockMode {
 					log.Printf("[INFO] 模拟模式: 生成模拟结果代替调用大模型")
@@ -282,46 +282,46 @@ func (h *HomeworkHandler) processPDFHomework(pdfPath, homeworkType, customPrompt
 					}`, studentIdx+1, studentIdx+1)
 					response = mockData
 					break
-	} else {
+				} else {
 					// 调用大模型API处理PDF文件
 					response, err = services.GenerateContentWithPDF(client, systemInstruction, studentPDF, textPrompt)
 				}
-				
+
 				if err == nil {
 					log.Printf("[INFO] 成功获取学生%d的大模型分析结果", studentIdx+1)
 					break // 成功获取响应，退出重试循环
 				}
-				
-				log.Printf("[ERROR] 调用大模型处理PDF失败 (尝试%d/%d): %v", 
+
+				log.Printf("[ERROR] 调用大模型处理PDF失败 (尝试%d/%d): %v",
 					attempt+1, maxRetries+1, err)
-					
+
 				if attempt == maxRetries {
-					log.Printf("[WARN] 达到最大重试次数，无法处理学生%d的作业", 
+					log.Printf("[WARN] 达到最大重试次数，无法处理学生%d的作业",
 						studentIdx+1)
 				}
 			}
-			
+
 			// 如果获取到响应
 			if err == nil && response != "" {
 				log.Printf("[INFO] 成功处理学生 %d 的作业", studentIdx+1)
-				
+
 				// 添加到处理结果
 				// h.taskQueue.AddTaskResult(taskID, response)
-				
+
 				// 更新处理计数
 				h.taskQueue.IncrementProcessedCount(taskID)
-				
+
 				// 锁定添加结果
 				h.mutex.Lock()
 				results = append(results, response)
 				processedCount++
 				h.mutex.Unlock()
-				
+
 				// 如果所有学生都处理完成，更新任务状态
 				h.mutex.Lock()
 				if processedCount >= totalStudents {
 					log.Printf("[INFO] 所有学生处理完成，总数: %d", totalStudents)
-					
+
 					// 合并结果 - 修改这里的结果格式
 					combinedResults := "["
 					for i, result := range results {
@@ -333,17 +333,17 @@ func (h *HomeworkHandler) processPDFHomework(pdfPath, homeworkType, customPrompt
 						if strings.HasSuffix(result, "]") {
 							result = strings.TrimSuffix(result, "]")
 						}
-						
+
 						// 添加到合并结果中
 						combinedResults += result
-						
+
 						// 如果不是最后一个结果，添加逗号分隔
 						if i < len(results)-1 {
 							combinedResults += ","
 						}
 					}
 					combinedResults += "]"
-					
+
 					// 完成任务
 					h.taskQueue.CompleteTask(taskID, combinedResults)
 				}
@@ -353,7 +353,7 @@ func (h *HomeworkHandler) processPDFHomework(pdfPath, homeworkType, customPrompt
 			}
 		}(studentIdx, studentPDF)
 	}
-	
+
 	// 返回任务ID，前端可以轮询任务状态
 	return taskID, nil
 }
@@ -384,7 +384,7 @@ func getSystemInstructionByType(homeworkType string) string {
       "explanation": "简短答案解释"
     }
   ],
-  "overallScore": "总得分",
+  "overallScore": "总得分（必须使用百分制，0-100之间的数字，不要带百分号）",
   "feedback": "整体评价和建议"
 }
 
@@ -412,7 +412,7 @@ func getSystemInstructionByType(homeworkType string) string {
       "explanation": "简短答案解释"
     }
   ],
-  "overallScore": "总得分",
+  "overallScore": "总得分（必须使用百分制，0-100之间的数字，不要带百分号）",
   "feedback": "整体评价和建议"
 		}`
 	case "chinese":
@@ -437,7 +437,7 @@ func getSystemInstructionByType(homeworkType string) string {
       "explanation": "简短答案解释"
     }
   ],
-  "overallScore": "总得分",
+  "overallScore": "总得分（必须使用百分制，0-100之间的数字，不要带百分号）",
   "feedback": "整体评价和建议"
 		}`
 	default:
@@ -461,7 +461,7 @@ func getSystemInstructionByType(homeworkType string) string {
       "explanation": "简短答案解释"
     }
   ],
-  "overallScore": "总得分",
+  "overallScore": "总得分（必须使用百分制，0-100之间的数字，不要带百分号）",
   "feedback": "整体评价和建议"
 		}`
 	}
@@ -473,14 +473,14 @@ func calculateOverallScore(answers []map[string]interface{}) string {
 	if len(answers) == 0 {
 		return "0"
 	}
-	
+
 	correctCount := 0
 	for _, answer := range answers {
 		if isCorrect, ok := answer["isCorrect"].(bool); ok && isCorrect {
 			correctCount++
 		}
 	}
-	
+
 	// 计算百分比
 	percentage := float64(correctCount) / float64(len(answers)) * 100
 	return fmt.Sprintf("%.1f", percentage)
@@ -491,22 +491,22 @@ func generateFeedback(answers []map[string]interface{}) string {
 	if len(answers) == 0 {
 		return "未检测到答案内容"
 	}
-	
+
 	correctCount := 0
 	for _, answer := range answers {
 		if isCorrect, ok := answer["isCorrect"].(bool); ok && isCorrect {
 			correctCount++
 		}
 	}
-	
+
 	// 计算正确率
 	correctRate := float64(correctCount) / float64(len(answers))
-	
+
 	if correctRate >= 0.8 {
 		return "整体表现优秀，继续保持！"
 	} else if correctRate >= 0.6 {
 		return "整体表现良好，但仍有提升空间。"
-					} else {
+	} else {
 		return "需要更多练习，建议重点复习错题。"
 	}
 }
@@ -518,7 +518,7 @@ func createMockImageFile(imagePath string) error {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
-	
+
 	// 创建一个简单的文本文件模拟图片
 	// 实际使用中，这里应该是从PDF转换得到的真实图片
 	return os.WriteFile(imagePath, []byte("Mock image file for testing"), 0644)
@@ -528,36 +528,36 @@ func createMockImageFile(imagePath string) error {
 func splitPDFToImages(pdfPath, outputDir string) ([]string, error) {
 	// 这是一个占位实现，实际项目中需要使用PDF库
 	// 如UniDoc、pdfcpu、GhostScript或其他方式分割PDF
-	
+
 	log.Printf("[INFO] 分割PDF到图片: %s -> %s", pdfPath, outputDir)
-	
+
 	// 确保输出目录存在
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return nil, fmt.Errorf("创建输出目录失败: %v", err)
 	}
-	
+
 	// 检查PDF文件是否存在
 	if _, err := os.Stat(pdfPath); os.IsNotExist(err) {
 		return nil, fmt.Errorf("PDF文件不存在: %s", pdfPath)
 	}
-	
+
 	// 实际实现中，这里应该使用PDF库读取文件并计算页数
 	// 然后将每页转换为图片并保存
-	
+
 	// 这里仅返回模拟的3页图片路径作为示例
 	imageFiles := []string{
 		filepath.Join(outputDir, "page1.jpg"),
 		filepath.Join(outputDir, "page2.jpg"),
 		filepath.Join(outputDir, "page3.jpg"),
 	}
-	
+
 	// 创建模拟图片文件
 	for _, path := range imageFiles {
 		if err := createMockImageFile(path); err != nil {
 			return nil, fmt.Errorf("创建图片文件失败: %v", err)
 		}
 	}
-	
+
 	log.Printf("[INFO] PDF分割完成，生成了 %d 张图片", len(imageFiles))
 	return imageFiles, nil
 }
@@ -598,32 +598,32 @@ func (h *HomeworkHandler) processImageHomework(imagePath, homeworkType, customPr
 	var response string
 	var err error
 	maxRetries := 3
-	
+
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
 			log.Printf("[INFO] 第%d次重试调用大模型处理图片...", attempt)
 			// 指数退避策略
-			backoffTime := time.Duration(attempt * attempt) * time.Second
+			backoffTime := time.Duration(attempt*attempt) * time.Second
 			time.Sleep(backoffTime)
 		}
-		
+
 		// 调用大模型API
 		response, err = client.GenerateContentWithFile(systemInstruction, imagePath, "image/jpeg", textPrompt)
-		
+
 		if err == nil {
 			log.Printf("[INFO] 成功获取大模型分析结果")
 			break // 成功获取响应，退出重试循环
 		}
-		
-		log.Printf("[ERROR] 调用大模型处理图片失败 (尝试%d/%d): %v", 
+
+		log.Printf("[ERROR] 调用大模型处理图片失败 (尝试%d/%d): %v",
 			attempt+1, maxRetries+1, err)
-			
+
 		if attempt == maxRetries {
 			log.Printf("[ERROR] 达到最大重试次数，处理图片失败")
 			return "", fmt.Errorf("AI服务处理失败: %v", err)
 		}
 	}
-	
+
 	// 验证返回的JSON格式
 	var jsonResult interface{}
 	if err := json.Unmarshal([]byte(response), &jsonResult); err != nil {
@@ -631,7 +631,7 @@ func (h *HomeworkHandler) processImageHomework(imagePath, homeworkType, customPr
 		// 记录部分原始响应以便调试
 		if len(response) > 200 {
 			log.Printf("[DEBUG] 原始响应前200字符: %s", response[:200])
-	} else {
+		} else {
 			log.Printf("[DEBUG] 原始响应: %s", response)
 		}
 		return "", fmt.Errorf("解析AI返回的JSON失败: %v", err)

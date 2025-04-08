@@ -284,13 +284,13 @@ func (c *VertexAIClient) GenerateContentWithFile(systemInstruction, filePath, mi
 		log.Printf("[ERROR] 未设置GOOGLE_APPLICATION_CREDENTIALS环境变量")
 		return "", fmt.Errorf("未设置GOOGLE_APPLICATION_CREDENTIALS环境变量")
 	}
-	
+
 	// 检查凭证文件是否存在
 	if _, err := os.Stat(credFile); os.IsNotExist(err) {
 		log.Printf("[ERROR] API凭证文件不存在: %s", credFile)
 		return "", fmt.Errorf("API凭证文件不存在: %s", credFile)
 	}
-	
+
 	log.Printf("[INFO] 使用API凭证文件: %s", credFile)
 
 	// 尝试读取文件内容，确保可读
@@ -299,9 +299,9 @@ func (c *VertexAIClient) GenerateContentWithFile(systemInstruction, filePath, mi
 		log.Printf("[ERROR] 无法读取文件内容: %v", readErr)
 		return "", fmt.Errorf("无法读取文件内容: %v", readErr)
 	}
-	
+
 	log.Printf("[INFO] 成功读取文件内容，大小: %d 字节", len(fileContent))
-	
+
 	// 如果是PDF，检查文件是否有效
 	if strings.HasSuffix(fileName, ".pdf") {
 		// 尝试获取页数作为验证PDF有效性的方式
@@ -506,34 +506,34 @@ func GenerateMockHomeworkResult(filePath, textPrompt string) (string, error) {
 
 	// 生成随机数量的学生结果（1-3名学生）
 	numStudents := rand.Intn(3) + 1
-	
+
 	// 创建学生结果数组
 	studentResults := make([]string, numStudents)
-	
+
 	// 基础名字列表
 	baseNames := []string{"张三", "李四", "王五", "赵六", "钱七"}
-	
+
 	// 为每个学生生成模拟结果
 	for i := 0; i < numStudents; i++ {
 		// 获取学生姓名
 		studentName := baseNames[rand.Intn(len(baseNames))]
-		
+
 		// 根据作业类型生成不同的模拟结果
 		var studentResult string
-		
+
 		switch homeworkType {
 		case "英语":
-			// 生成随机分数
+			// 生成随机分数 - 确保是0-100之间的整数
 			score := 70 + rand.Intn(30)
-			
+
 			// 生成答案数组
-			correctCount := 2 + rand.Intn(2) // 2-3个正确答案
+			correctCount := 2 + rand.Intn(2)   // 2-3个正确答案
 			totalQuestions := 4 + rand.Intn(2) // 4-5个总题目
-			
+
 			answers := []string{}
 			for j := 1; j <= totalQuestions; j++ {
 				isCorrect := j <= correctCount // 前N题为正确答案
-				
+
 				if isCorrect {
 					answer := fmt.Sprintf(`
     {
@@ -555,8 +555,8 @@ func GenerateMockHomeworkResult(filePath, textPrompt string) (string, error) {
 					answers = append(answers, answer)
 				}
 			}
-			
-			// 合并成完整的学生结果
+
+			// 合并成完整的学生结果 - 分数直接使用整数
 			studentResult = fmt.Sprintf(`{
   "name": "%s",
   "answers": [%s
@@ -566,17 +566,17 @@ func GenerateMockHomeworkResult(filePath, textPrompt string) (string, error) {
 }`, studentName, strings.Join(answers, ","), score)
 
 		case "数学":
-			// 生成随机分数
+			// 生成随机分数 - 确保是0-100之间的整数
 			score := 75 + rand.Intn(25)
-			
+
 			// 生成答案数组
-			correctCount := 3 + rand.Intn(3) // 3-5个正确答案
+			correctCount := 3 + rand.Intn(3)   // 3-5个正确答案
 			totalQuestions := 6 + rand.Intn(3) // 6-8个总题目
-			
+
 			answers := []string{}
 			for j := 1; j <= totalQuestions; j++ {
 				isCorrect := j <= correctCount // 前N题为正确答案
-				
+
 				if isCorrect {
 					answer := fmt.Sprintf(`
     {
@@ -600,8 +600,8 @@ func GenerateMockHomeworkResult(filePath, textPrompt string) (string, error) {
 					answers = append(answers, answer)
 				}
 			}
-			
-			// 合并成完整的学生结果
+
+			// 合并成完整的学生结果 - 分数直接使用整数
 			studentResult = fmt.Sprintf(`{
   "name": "%s",
   "answers": [%s
@@ -611,13 +611,13 @@ func GenerateMockHomeworkResult(filePath, textPrompt string) (string, error) {
 }`, studentName, strings.Join(answers, ","), score)
 
 		case "语文":
-			// 生成随机分数
+			// 生成随机分数 - 确保是0-100之间的整数
 			score := 80 + rand.Intn(20)
-			
+
 			// 生成答案数组
-			correctCount := 2 + rand.Intn(2) // 2-3个正确答案
+			correctCount := 2 + rand.Intn(2)   // 2-3个正确答案
 			totalQuestions := 4 + rand.Intn(2) // 4-5个总题目
-			
+
 			answers := []string{}
 			for j := 1; j <= totalQuestions; j++ {
 				if j <= correctCount {
@@ -643,8 +643,8 @@ func GenerateMockHomeworkResult(filePath, textPrompt string) (string, error) {
 					answers = append(answers, answer)
 				}
 			}
-			
-			// 合并成完整的学生结果
+
+			// 合并成完整的学生结果 - 分数直接使用整数
 			studentResult = fmt.Sprintf(`{
   "name": "%s",
   "answers": [%s
@@ -683,10 +683,10 @@ func GenerateMockHomeworkResult(filePath, textPrompt string) (string, error) {
   "feedback": "学生整体表现良好，需要在细节上多加注意。"
 }`, studentName, score)
 		}
-		
+
 		studentResults[i] = studentResult
 	}
-	
+
 	// 生成整体结果：如果只有一个学生，直接返回；如果有多个学生，放在数组中
 	if numStudents == 1 {
 		log.Printf("[INFO] 生成单个学生的作业批改结果")

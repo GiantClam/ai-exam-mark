@@ -821,12 +821,66 @@ const Homework: React.FC = () => {
       const fileName = '作业批改结果.xlsx';
       const workbook = XLSX.utils.book_new();
       
-      // 创建总览表
+      // 创建总览表 - 按照参考图片格式调整
+      
+      // 先确定所有问题编号，以便创建列
+      const allQuestionNumbers: Set<string> = new Set();
+      studentResults.forEach(student => {
+        if (student.answers && student.answers.length > 0) {
+          student.answers.forEach(answer => {
+            if (answer.questionNumber) {
+              allQuestionNumbers.add(answer.questionNumber);
+            }
+          });
+        }
+      });
+      
+      // 对问题编号进行排序
+      const sortedQuestionNumbers = Array.from(allQuestionNumbers).sort((a, b) => {
+        // 尝试将问题编号转为数字进行排序
+        const numA = parseInt(a);
+        const numB = parseInt(b);
+        if (!isNaN(numA) && !isNaN(numB)) {
+          return numA - numB;
+        }
+        // 否则进行字符串排序
+        return a.localeCompare(b);
+      });
+      
+      // 为每个学生创建一行数据
       const overviewData = studentResults.map((student, index) => {
-        return {
+        // 获取学生所有题目答案状态
+        const questionResults: Record<string, string> = {};
+        
+        // 初始化所有问题为空
+        sortedQuestionNumbers.forEach(qNum => {
+          questionResults[`题号${qNum}`] = "";
+        });
+        
+        // 填充学生已回答的问题
+        if (student.answers && student.answers.length > 0) {
+          student.answers.forEach(answer => {
+            if (answer.questionNumber) {
+              questionResults[`题号${answer.questionNumber}`] = answer.isCorrect ? '正确' : '错误';
+            }
+          });
+        }
+        
+        // 基础信息
+        const baseData: Record<string, any> = {
           '序号': index + 1,
           '学生姓名': student.name || `学生${index + 1}`,
           '班级': student.class || 'N/A',
+        };
+        
+        // 添加所有题目的答案状态
+        sortedQuestionNumbers.forEach(qNum => {
+          baseData[`题号${qNum}`] = questionResults[`题号${qNum}`];
+        });
+        
+        // 添加总结信息
+        return {
+          ...baseData,
           '总分': student.score || 'N/A',
           '正确题数': student.correctCount || 0,
           '总题数': student.totalQuestions || 0,
@@ -835,10 +889,37 @@ const Homework: React.FC = () => {
         };
       });
       
+      // 创建工作表并应用样式
       const overviewSheet = XLSX.utils.json_to_sheet(overviewData);
+      
+      // 设置列宽
+      const columnWidths: Array<{wch: number}> = [
+        { wch: 8 },  // A 序号
+        { wch: 12 }, // B 学生姓名
+        { wch: 10 }, // C 班级
+      ];
+      
+      // 为每个问题添加列宽
+      sortedQuestionNumbers.forEach(() => {
+        columnWidths.push({ wch: 10 }); // 题号列宽
+      });
+      
+      // 添加后续列的宽度
+      columnWidths.push(
+        { wch: 10 }, // 总分
+        { wch: 10 }, // 正确题数
+        { wch: 10 }, // 总题数
+        { wch: 10 }, // 正确率
+        { wch: 40 }  // 总体评价
+      );
+      
+      // 应用列宽
+      overviewSheet['!cols'] = columnWidths;
+      
+      // 添加到工作簿
       XLSX.utils.book_append_sheet(workbook, overviewSheet, '总览');
       
-      // 为每个学生创建详细表
+      // 为每个学生创建详细表 - 保持原有逻辑
       studentResults.forEach((student, index) => {
         const studentName = student.name || `学生${index + 1}`;
         
@@ -869,6 +950,14 @@ const Homework: React.FC = () => {
         // 如果有答案数据，添加到工作簿
         if (answerData.length > 0) {
           const answersSheet = XLSX.utils.json_to_sheet(answerData);
+          // 设置详细表的列宽
+          answersSheet['!cols'] = [
+            { wch: 8 },  // 题号
+            { wch: 40 }, // 学生答案
+            { wch: 10 }, // 是否正确
+            { wch: 40 }, // 标准答案
+            { wch: 40 }  // 解释/评价
+          ];
           XLSX.utils.book_append_sheet(workbook, answersSheet, studentName.substring(0, 31)); // Excel的工作表名称最长为31个字符
         }
       });
