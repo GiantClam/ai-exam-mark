@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/gin-contrib/cors"
-	"github.com/gin-gonic/gin"
 	"github.com/GiantClam/homework_marking/handlers"
 	"github.com/GiantClam/homework_marking/services"
+	"github.com/gin-contrib/cors"
+	"github.com/gin-gonic/gin"
 )
 
 // SetupRouter 设置API路由
@@ -78,7 +78,7 @@ func SetupRouter(geminiService *services.GeminiService) *gin.Engine {
 		{
 			marking.POST("/homework", homeworkHandler.MarkHomework)
 		}
-		
+
 		// 任务API
 		tasks := api.Group("/tasks")
 		{

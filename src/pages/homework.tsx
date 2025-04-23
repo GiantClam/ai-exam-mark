@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Upload, Form, Select, InputNumber, Button, message, Card, Typography, Spin, Divider, Result, Tag, List, Collapse, Progress } from 'antd';
-import { InboxOutlined, CheckCircleOutlined, DownloadOutlined } from '@ant-design/icons';
+import { Upload, Form, Select, InputNumber, Button, message, Card, Typography, Spin, Divider, Result, Tag, List, Collapse, Progress, Modal, Input, Switch } from 'antd';
+import { InboxOutlined, CheckCircleOutlined, DownloadOutlined, EditOutlined } from '@ant-design/icons';
 import type { UploadProps, UploadFile } from 'antd';
 import axios from 'axios';
 import * as XLSX from 'xlsx';
@@ -75,6 +75,20 @@ const Homework: React.FC = () => {
 
   // 使用useRef存储轮询定时器，确保引用稳定
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Add state for edit modal
+  const [isEditModalVisible, setIsEditModalVisible] = useState(false);
+  const [editingStudentIndex, setEditingStudentIndex] = useState<number | null>(null);
+  const [editingAnswerIndex, setEditingAnswerIndex] = useState<number | null>(null);
+  const [editForm] = Form.useForm();
+
+  // Add state for student info edit modal
+  const [isStudentEditModalVisible, setIsStudentEditModalVisible] = useState(false);
+  const [studentEditForm] = Form.useForm();
+
+  // Add state for master answers modal
+  const [isMasterAnswersModalVisible, setIsMasterAnswersModalVisible] = useState(false);
+  const [masterAnswersForm] = Form.useForm();
 
   // 异步轮询任务状态
   useEffect(() => {
@@ -1019,13 +1033,25 @@ const Homework: React.FC = () => {
               onChange={(key) => setActiveKey(key)} 
               activeKey={activeKey}
               accordion={false}
-              items={studentResults.map((student, index) => ({
-                key: `student-${index}`,
+              items={studentResults.map((student, studentIndex) => ({
+                key: `student-${studentIndex}`,
                 label: (
-                  <div>
-                    <span>{student.name}</span>
-                    {student.class && <span style={{ marginLeft: 8, color: '#8c8c8c' }}>({student.class})</span>} 
-                    <span style={{ marginLeft: 8 }}>- {student.score}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                    <div>
+                      <span>{student.name}</span>
+                      {student.class && <span style={{ marginLeft: 8, color: '#8c8c8c' }}>({student.class})</span>} 
+                      <span style={{ marginLeft: 8 }}>- {student.score}</span>
+                    </div>
+                    <Button 
+                      icon={<EditOutlined />} 
+                      size="small" 
+                      onClick={(e) => {
+                        e.stopPropagation(); // 阻止冒泡，避免触发折叠面板的展开/收起
+                        handleEditStudent(studentIndex);
+                      }}
+                    >
+                      编辑学生信息
+                    </Button>
                   </div>
                 ),
                 children: (
@@ -1054,14 +1080,27 @@ const Homework: React.FC = () => {
                           size="small"
                           bordered
                           dataSource={student.answers}
-                          renderItem={(answer: AnswerDetail) => (
+                          renderItem={(answer: AnswerDetail, answerIndex: number) => (
                             <List.Item>
                               <div style={{ width: '100%' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                   <Text strong>题目 {answer.questionNumber}: </Text>
-                                  <Tag color={answer.isCorrect ? 'success' : 'error'}>
-                                    {answer.isCorrect ? '正确' : '错误'}
-                                  </Tag>
+                                  <div>
+                                    <Tag 
+                                      color={answer.isCorrect ? 'success' : 'error'}
+                                      onClick={() => toggleAnswerCorrectness(studentIndex, answerIndex)}
+                                      style={{ cursor: 'pointer', marginRight: 8 }}
+                                    >
+                                      {answer.isCorrect ? '正确' : '错误'} (点击修改)
+                                    </Tag>
+                                    <Button 
+                                      icon={<EditOutlined />} 
+                                      size="small" 
+                                      onClick={() => handleEditAnswer(studentIndex, answerIndex)}
+                                    >
+                                      编辑
+                                    </Button>
+                                  </div>
                                 </div>
                                 <div style={{ marginTop: 4 }}>
                                   <Text type="secondary">学生答案: </Text>
@@ -1100,6 +1139,12 @@ const Homework: React.FC = () => {
               >
                 下载批改结果
               </Button>
+              <Button
+                type="default"
+                onClick={handleUploadMasterAnswers}
+              >
+                设置标准答案
+              </Button>
             </div>
           </div>
         ) : (
@@ -1108,10 +1153,18 @@ const Homework: React.FC = () => {
               未能解析学生结果，原始数据:
               <pre style={{ maxHeight: '400px', overflow: 'auto' }}>{result}</pre>
             </Paragraph>
-            <div style={{ marginTop: 16 }}>
+            <div style={{ marginTop: 16, display: 'flex', gap: '10px' }}>
               <Button type="primary" onClick={() => {resetForm(); setDisplayResults(false);}} >
                 重新上传
               </Button>
+              {studentResults.length > 0 && (
+                <Button
+                  type="default"
+                  onClick={handleUploadMasterAnswers}
+                >
+                  设置标准答案
+                </Button>
+              )}
             </div>
           </div>
         )}
@@ -1211,6 +1264,250 @@ const Homework: React.FC = () => {
     };
   }, []);
 
+  // Handle editing answer details
+  const handleEditAnswer = (studentIndex: number, answerIndex: number) => {
+    setEditingStudentIndex(studentIndex);
+    setEditingAnswerIndex(answerIndex);
+    
+    // Get the current answer data to populate the form
+    const student = studentResults[studentIndex];
+    const answer = student.answers![answerIndex];
+    
+    // Set form values
+    editForm.setFieldsValue({
+      studentAnswer: answer.studentAnswer,
+      isCorrect: answer.isCorrect,
+      correctAnswer: answer.correctAnswer,
+      explanation: answer.explanation,
+    });
+    
+    setIsEditModalVisible(true);
+  };
+  
+  // Save edited answer
+  const handleSaveEdit = () => {
+    editForm.validateFields().then(values => {
+      if (editingStudentIndex === null || editingAnswerIndex === null) return;
+      
+      setStudentResults(prevResults => {
+        // Create a deep copy to avoid directly modifying state
+        const newResults = [...prevResults];
+        const student = newResults[editingStudentIndex];
+        
+        if (student && student.answers) {
+          // Update the answer with form values
+          student.answers[editingAnswerIndex] = {
+            ...student.answers[editingAnswerIndex],
+            studentAnswer: values.studentAnswer,
+            isCorrect: values.isCorrect,
+            correctAnswer: values.correctAnswer,
+            explanation: values.explanation,
+          };
+          
+          // Recalculate correctCount and score
+          const correctAnswers = student.answers.filter(a => a.isCorrect).length;
+          student.correctCount = correctAnswers;
+          
+          if (student.totalQuestions > 0) {
+            const correctRate = correctAnswers / student.totalQuestions;
+            const correctPercent = Math.round(correctRate * 100);
+            student.score = `${correctPercent}`;
+          }
+        }
+        
+        return newResults;
+      });
+      
+      // Close modal and reset editing state
+      setIsEditModalVisible(false);
+      setEditingStudentIndex(null);
+      setEditingAnswerIndex(null);
+      message.success('答案已更新');
+    });
+  };
+  
+  // Add this at the end of the component, before the return statement
+  const handleCancelEdit = () => {
+    setIsEditModalVisible(false);
+    setEditingStudentIndex(null);
+    setEditingAnswerIndex(null);
+  };
+
+  // 添加切换答案正确性的函数
+  const toggleAnswerCorrectness = (studentIndex: number, answerIndex: number) => {
+    setStudentResults(prevResults => {
+      // 创建一个深拷贝，避免直接修改状态
+      const newResults = [...prevResults];
+      
+      // 确保存在学生和答案
+      if (newResults[studentIndex] && newResults[studentIndex].answers && newResults[studentIndex].answers![answerIndex]) {
+        // 切换正确/错误状态
+        const isCurrentlyCorrect = newResults[studentIndex].answers![answerIndex].isCorrect;
+        newResults[studentIndex].answers![answerIndex].isCorrect = !isCurrentlyCorrect;
+        
+        // 更新该学生的correctCount
+        const correctAnswers = newResults[studentIndex].answers!.filter(a => a.isCorrect).length;
+        newResults[studentIndex].correctCount = correctAnswers;
+        
+        // 如果学生有总题数，更新正确率显示在评分中
+        if (newResults[studentIndex].totalQuestions > 0) {
+          const correctRate = correctAnswers / newResults[studentIndex].totalQuestions;
+          const correctPercent = Math.round(correctRate * 100);
+          newResults[studentIndex].score = `${correctPercent}`;
+        }
+        
+        // 显示操作提示
+        message.success(`已${!isCurrentlyCorrect ? '修正' : '标记'}为${!isCurrentlyCorrect ? '正确' : '错误'}`);
+      }
+      
+      return newResults;
+    });
+  };
+
+  // Handle editing student information
+  const handleEditStudent = (studentIndex: number) => {
+    setEditingStudentIndex(studentIndex);
+    
+    // Get the current student data to populate the form
+    const student = studentResults[studentIndex];
+    
+    // Set form values
+    studentEditForm.setFieldsValue({
+      name: student.name,
+      class: student.class,
+      score: student.score,
+      feedback: student.feedback,
+    });
+    
+    setIsStudentEditModalVisible(true);
+  };
+  
+  // Save edited student information
+  const handleSaveStudentEdit = () => {
+    studentEditForm.validateFields().then(values => {
+      if (editingStudentIndex === null) return;
+      
+      setStudentResults(prevResults => {
+        // Create a deep copy to avoid directly modifying state
+        const newResults = [...prevResults];
+        const student = newResults[editingStudentIndex];
+        
+        if (student) {
+          // Update the student information with form values
+          student.name = values.name;
+          student.class = values.class;
+          student.score = values.score;
+          student.feedback = values.feedback;
+        }
+        
+        return newResults;
+      });
+      
+      // Close modal and reset editing state
+      setIsStudentEditModalVisible(false);
+      setEditingStudentIndex(null);
+      message.success('学生信息已更新');
+    });
+  };
+  
+  // Cancel student info edit
+  const handleCancelStudentEdit = () => {
+    setIsStudentEditModalVisible(false);
+    setEditingStudentIndex(null);
+  };
+
+  // Handle uploading master answers
+  const handleUploadMasterAnswers = () => {
+    // Check if we have any student results to work with
+    if (studentResults.length === 0) {
+      message.error('没有学生数据，无法设置答案');
+      return;
+    }
+    
+    // Get the first student to extract question numbers
+    const firstStudent = studentResults[0];
+    if (!firstStudent.answers || firstStudent.answers.length === 0) {
+      message.error('第一个学生没有答题数据，无法设置答案');
+      return;
+    }
+    
+    // Prepare form initial values
+    const initialValues: Record<string, string> = {};
+    firstStudent.answers.forEach(answer => {
+      const fieldName = `answer_${answer.questionNumber}`;
+      // If we already have a correct answer for incorrect answers, use it
+      initialValues[fieldName] = answer.isCorrect ? answer.studentAnswer : (answer.correctAnswer || '');
+    });
+    
+    // Set the form values
+    masterAnswersForm.setFieldsValue(initialValues);
+    
+    // Show the modal
+    setIsMasterAnswersModalVisible(true);
+  };
+  
+  // Save master answers and auto-grade
+  const handleSaveMasterAnswers = () => {
+    masterAnswersForm.validateFields().then(values => {
+      // Create a mapping of question numbers to correct answers
+      const correctAnswers: Record<string, string> = {};
+      
+      // Extract answers from form values
+      Object.keys(values).forEach(key => {
+        if (key.startsWith('answer_')) {
+          const questionNumber = key.replace('answer_', '');
+          correctAnswers[questionNumber] = values[key];
+        }
+      });
+      
+      // Update all students' answers
+      setStudentResults(prevResults => {
+        const newResults = [...prevResults];
+        
+        // For each student
+        newResults.forEach(student => {
+          if (!student.answers) return;
+          
+          let correctCount = 0;
+          
+          // For each of their answers
+          student.answers.forEach(answer => {
+            const correctAnswer = correctAnswers[answer.questionNumber];
+            
+            // Skip if we don't have a correct answer for this question
+            if (!correctAnswer) return;
+            
+            // Compare and update
+            const isCorrect = answer.studentAnswer === correctAnswer;
+            answer.isCorrect = isCorrect;
+            
+            // If incorrect, update the correct answer
+            if (!isCorrect) {
+              answer.correctAnswer = correctAnswer;
+            }
+            
+            // Count correct answers
+            if (isCorrect) correctCount++;
+          });
+          
+          // Update student's correct count and score
+          student.correctCount = correctCount;
+          if (student.totalQuestions > 0) {
+            const correctRate = correctCount / student.totalQuestions;
+            const correctPercent = Math.round(correctRate * 100);
+            student.score = `${correctPercent}`;
+          }
+        });
+        
+        return newResults;
+      });
+      
+      // Close the modal
+      setIsMasterAnswersModalVisible(false);
+      message.success('答案设置成功，已更新所有学生的评分');
+    });
+  };
+
   return (
     <div style={{ maxWidth: 800, margin: '0 auto', padding: '24px' }}>
       <Card>
@@ -1297,6 +1594,115 @@ const Homework: React.FC = () => {
           </div>
         )}
       </Card>
+
+      {/* Edit Answer Modal */}
+      <Modal
+        title="编辑答案详情"
+        open={isEditModalVisible}
+        onOk={handleSaveEdit}
+        onCancel={handleCancelEdit}
+        okText="保存"
+        cancelText="取消"
+      >
+        <Form form={editForm} layout="vertical">
+          <Form.Item
+            name="studentAnswer"
+            label="学生答案"
+            rules={[{ required: true, message: '请输入学生答案' }]}
+          >
+            <Input.TextArea rows={3} />
+          </Form.Item>
+          
+          <Form.Item name="isCorrect" label="答案是否正确" valuePropName="checked">
+            <Switch checkedChildren="正确" unCheckedChildren="错误" />
+          </Form.Item>
+          
+          <Form.Item
+            name="correctAnswer"
+            label="正确答案"
+            rules={[{ required: editForm.getFieldValue('isCorrect') === false, message: '请输入正确答案' }]}
+          >
+            <Input.TextArea rows={3} />
+          </Form.Item>
+          
+          <Form.Item name="explanation" label="解释/评价">
+            <Input.TextArea rows={3} />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* Student Info Edit Modal */}
+      <Modal
+        title="编辑学生信息"
+        open={isStudentEditModalVisible}
+        onOk={handleSaveStudentEdit}
+        onCancel={handleCancelStudentEdit}
+        okText="保存"
+        cancelText="取消"
+      >
+        <Form form={studentEditForm} layout="vertical">
+          <Form.Item
+            name="name"
+            label="学生姓名"
+            rules={[{ required: true, message: '请输入学生姓名' }]}
+          >
+            <Input />
+          </Form.Item>
+          
+          <Form.Item
+            name="class"
+            label="班级"
+          >
+            <Input placeholder="可选填写" />
+          </Form.Item>
+          
+          <Form.Item
+            name="score"
+            label="分数"
+            rules={[{ required: true, message: '请输入分数' }]}
+          >
+            <Input />
+          </Form.Item>
+          
+          <Form.Item
+            name="feedback"
+            label="反馈"
+            rules={[{ required: false }]}
+          >
+            <Input.TextArea rows={3} placeholder="输入对该学生的反馈意见" />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* Master Answers Modal */}
+      <Modal
+        title="设置标准答案"
+        open={isMasterAnswersModalVisible}
+        onOk={handleSaveMasterAnswers}
+        onCancel={() => setIsMasterAnswersModalVisible(false)}
+        okText="保存并自动评分"
+        cancelText="取消"
+        width={600}
+      >
+        <Paragraph>
+          请为每个题目设置标准答案。保存后，系统将自动与学生答案比对并更新评分。
+        </Paragraph>
+        
+        <Form form={masterAnswersForm} layout="vertical">
+          {studentResults.length > 0 && studentResults[0].answers && 
+            studentResults[0].answers.map(answer => (
+              <Form.Item
+                key={`answer_${answer.questionNumber}`}
+                name={`answer_${answer.questionNumber}`}
+                label={`题目 ${answer.questionNumber} 的标准答案`}
+                rules={[{ required: true, message: '请输入标准答案' }]}
+              >
+                <Input.TextArea rows={2} />
+              </Form.Item>
+            ))
+          }
+        </Form>
+      </Modal>
     </div>
   );
 };
