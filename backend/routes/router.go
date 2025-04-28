@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/GiantClam/homework_marking/handlers"
@@ -84,6 +86,82 @@ func SetupRouter(geminiService *services.GeminiService) *gin.Engine {
 		{
 			tasks.GET("/:taskId", taskHandler.GetTaskStatus)
 			tasks.GET("", taskHandler.GetAllTasks)
+		}
+
+		// 添加文件服务API
+		files := api.Group("/files")
+		{
+			// 用于获取分割后的PDF文件
+			files.GET("/:path/:filename", func(c *gin.Context) {
+				path := c.Param("path")
+				filename := c.Param("filename")
+
+				// 安全检查，确保文件名不包含路径遍历
+				if filepath.Ext(filename) != ".pdf" {
+					c.JSON(http.StatusBadRequest, gin.H{
+						"status":  "error",
+						"message": "只支持PDF文件",
+					})
+					return
+				}
+
+				// 构建文件路径
+				filePath := filepath.Join("uploads/split", path, filename)
+
+				// 检查文件是否存在
+				if _, err := os.Stat(filePath); os.IsNotExist(err) {
+					log.Printf("[ERROR] 文件不存在: %s", filePath)
+
+					// 尝试直接从 uploads/split 目录获取文件
+					directPath := filepath.Join("uploads/split", filename)
+					if _, err := os.Stat(directPath); os.IsNotExist(err) {
+						c.JSON(http.StatusNotFound, gin.H{
+							"status":  "error",
+							"message": "文件不存在",
+						})
+						return
+					}
+
+					// 使用直接路径
+					filePath = directPath
+					log.Printf("[INFO] 使用直接路径提供文件: %s", filePath)
+				}
+
+				// 提供文件
+				log.Printf("[INFO] 正在提供文件: %s", filePath)
+				c.File(filePath)
+			})
+
+			// 增加新路由处理直接从 split 目录获取文件的情况
+			files.GET("/split/:path/:filename", func(c *gin.Context) {
+				filename := c.Param("filename")
+
+				// 安全检查，确保文件名不包含路径遍历
+				if filepath.Ext(filename) != ".pdf" {
+					c.JSON(http.StatusBadRequest, gin.H{
+						"status":  "error",
+						"message": "只支持PDF文件",
+					})
+					return
+				}
+
+				// 构建文件路径
+				filePath := filepath.Join("uploads/split", filename)
+
+				// 检查文件是否存在
+				if _, err := os.Stat(filePath); os.IsNotExist(err) {
+					log.Printf("[ERROR] 文件不存在: %s", filePath)
+					c.JSON(http.StatusNotFound, gin.H{
+						"status":  "error",
+						"message": "文件不存在",
+					})
+					return
+				}
+
+				// 提供文件
+				log.Printf("[INFO] 正在提供文件: %s", filePath)
+				c.File(filePath)
+			})
 		}
 
 		// 测试API

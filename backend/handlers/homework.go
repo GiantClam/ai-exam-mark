@@ -226,14 +226,19 @@ func (h *HomeworkHandler) processPDFHomework(pdfPath, homeworkType, customPrompt
 	h.taskQueue.UpdateTaskTotalStudents(taskID, totalStudents)
 
 	// 用于保存每个学生的处理结果
-	var results []string
+	results := make([]string, totalStudents)
 
-	// 处理每个学生的PDF
-	processedCount := 0
+	// 创建一个等待组来同步所有goroutine
+	var wg sync.WaitGroup
+	var resultsMutex sync.Mutex
 
+	// 处理每个学生的PDF - 按照索引顺序处理
 	for studentIdx, studentPDF := range studentPDFs {
+		wg.Add(1)
+
 		// 为每个学生创建AI分析任务
 		go func(studentIdx int, pdfPath string) {
+			defer wg.Done()
 			defer func() {
 				if r := recover(); r != nil {
 					log.Printf("[ERROR] 处理学生作业时发生panic: %v", r)
@@ -284,7 +289,7 @@ func (h *HomeworkHandler) processPDFHomework(pdfPath, homeworkType, customPrompt
 					break
 				} else {
 					// 调用大模型API处理PDF文件
-					response, err = services.GenerateContentWithPDF(client, systemInstruction, studentPDF, textPrompt)
+					response, err = services.GenerateContentWithPDF(client, systemInstruction, pdfPath, textPrompt)
 				}
 
 				if err == nil {
@@ -305,54 +310,94 @@ func (h *HomeworkHandler) processPDFHomework(pdfPath, homeworkType, customPrompt
 			if err == nil && response != "" {
 				log.Printf("[INFO] 成功处理学生 %d 的作业", studentIdx+1)
 
-				// 添加到处理结果
-				// h.taskQueue.AddTaskResult(taskID, response)
+				// 解析JSON字符串为对象
+				var responseObj map[string]interface{}
+				err := json.Unmarshal([]byte(response), &responseObj)
+				if err == nil {
+					// 移除 "uploads/split/" 路径前缀
+					cleanPath := pdfPath
+					if strings.HasPrefix(cleanPath, "uploads/split/") {
+						cleanPath = strings.TrimPrefix(cleanPath, "uploads/split/")
+					}
+
+					// 添加PDF文件路径到响应对象
+					responseObj["pdfUrl"] = cleanPath
+
+					// 将对象转换回JSON字符串
+					updatedResponse, jsonErr := json.Marshal(responseObj)
+					if jsonErr == nil {
+						response = string(updatedResponse)
+					} else {
+						log.Printf("[ERROR] 将更新后的响应转换为JSON失败: %v", jsonErr)
+					}
+				} else {
+					log.Printf("[ERROR] 解析学生 %d 的响应JSON失败: %v", studentIdx+1, err)
+				}
 
 				// 更新处理计数
 				h.taskQueue.IncrementProcessedCount(taskID)
 
 				// 锁定添加结果
-				h.mutex.Lock()
-				results = append(results, response)
-				processedCount++
-				h.mutex.Unlock()
-
-				// 如果所有学生都处理完成，更新任务状态
-				h.mutex.Lock()
-				if processedCount >= totalStudents {
-					log.Printf("[INFO] 所有学生处理完成，总数: %d", totalStudents)
-
-					// 合并结果 - 修改这里的结果格式
-					combinedResults := "["
-					for i, result := range results {
-						// 去除首尾可能存在的中括号和多余空格
-						result = strings.TrimSpace(result)
-						if strings.HasPrefix(result, "[") {
-							result = strings.TrimPrefix(result, "[")
-						}
-						if strings.HasSuffix(result, "]") {
-							result = strings.TrimSuffix(result, "]")
-						}
-
-						// 添加到合并结果中
-						combinedResults += result
-
-						// 如果不是最后一个结果，添加逗号分隔
-						if i < len(results)-1 {
-							combinedResults += ","
-						}
-					}
-					combinedResults += "]"
-
-					// 完成任务
-					h.taskQueue.CompleteTask(taskID, combinedResults)
-				}
-				h.mutex.Unlock()
+				resultsMutex.Lock()
+				// 保存结果到正确的索引位置
+				results[studentIdx] = response
+				resultsMutex.Unlock()
 			} else {
 				log.Printf("[ERROR] 处理学生 %d 作业失败: %v", studentIdx+1, err)
+				// 即使处理失败，也在结果数组中保留位置
+				resultsMutex.Lock()
+				results[studentIdx] = ""
+				resultsMutex.Unlock()
 			}
 		}(studentIdx, studentPDF)
 	}
+
+	// 等待所有处理完成
+	wg.Wait()
+
+	// 合并结果 - 按原始索引顺序合并
+	combinedResults := "["
+	validResultCount := 0
+
+	for i, result := range results {
+		// 如果某个位置为空（处理失败），跳过它
+		if result == "" {
+			continue
+		}
+
+		validResultCount++
+
+		// 去除首尾可能存在的中括号和多余空格
+		result = strings.TrimSpace(result)
+		if strings.HasPrefix(result, "[") {
+			result = strings.TrimPrefix(result, "[")
+		}
+		if strings.HasSuffix(result, "]") {
+			result = strings.TrimSuffix(result, "]")
+		}
+
+		// 添加到合并结果中
+		combinedResults += result
+
+		// 如果不是最后一个结果，添加逗号分隔
+		if i < len(results)-1 {
+			// 检查后面是否还有非空结果
+			hasMoreResults := false
+			for j := i + 1; j < len(results); j++ {
+				if results[j] != "" {
+					hasMoreResults = true
+					break
+				}
+			}
+			if hasMoreResults {
+				combinedResults += ","
+			}
+		}
+	}
+	combinedResults += "]"
+
+	// 完成任务
+	h.taskQueue.CompleteTask(taskID, combinedResults)
 
 	// 返回任务ID，前端可以轮询任务状态
 	return taskID, nil

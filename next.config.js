@@ -2,7 +2,7 @@
 const nextConfig = {
   reactStrictMode: true,
   swcMinify: true,
-  transpilePackages: ['@ant-design/icons', 'antd'],
+  transpilePackages: ['@ant-design/icons', 'antd', 'react-pdf', 'pdfjs-dist'],
   webpack: (config, { isServer }) => {
     config.module.rules.push({
       test: /\.(js|jsx|ts|tsx)$/,
@@ -20,6 +20,24 @@ const nextConfig = {
         }
       }
     });
+
+    // 处理 ES 模块
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      'pdfjs-dist': 'pdfjs-dist/build/pdf',
+    };
+
+    // 增加对 canvas 的处理
+    if (!isServer) {
+      // 客户端 bundle 忽略 canvas 模块
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        canvas: false,
+        fs: false,
+        path: false,
+      };
+    }
+
     return config;
   },
   

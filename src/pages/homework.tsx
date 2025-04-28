@@ -1,9 +1,18 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Upload, Form, Select, InputNumber, Button, message, Card, Typography, Spin, Divider, Result, Tag, List, Collapse, Progress, Modal, Input, Switch } from 'antd';
-import { InboxOutlined, CheckCircleOutlined, DownloadOutlined, EditOutlined } from '@ant-design/icons';
+import { InboxOutlined, CheckCircleOutlined, DownloadOutlined, EditOutlined, FilePdfOutlined, EyeOutlined } from '@ant-design/icons';
 import type { UploadProps, UploadFile } from 'antd';
 import axios from 'axios';
 import * as XLSX from 'xlsx';
+import { Document, Page, pdfjs } from 'react-pdf';
+import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
+import 'react-pdf/dist/esm/Page/TextLayer.css';
+
+// 使用 Worker 静态引入方式
+pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
+
+// Log the versions to help with debugging
+console.log(`[PDF] PDF.js version: ${pdfjs.version}`);
 
 const { Dragger } = Upload;
 const { Title, Paragraph, Text } = Typography;
@@ -47,6 +56,7 @@ interface StudentResult {
   answers?: AnswerDetail[];
   totalQuestions: number;
   correctCount: number;
+  pdfUrl?: string;
 }
 
 const Homework: React.FC = () => {
@@ -89,6 +99,25 @@ const Homework: React.FC = () => {
   // Add state for master answers modal
   const [isMasterAnswersModalVisible, setIsMasterAnswersModalVisible] = useState(false);
   const [masterAnswersForm] = Form.useForm();
+
+  // Add state for PDF viewer
+  const [isPdfModalVisible, setIsPdfModalVisible] = useState(false);
+  const [currentPdfUrl, setCurrentPdfUrl] = useState<string | null>(null);
+  const [numPages, setNumPages] = useState<number | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+
+  // Add scale state for PDF viewer
+  const [pdfScale, setPdfScale] = useState<number>(1.0);
+
+  // Add state for side-by-side view
+  const [showSideBySide, setShowSideBySide] = useState<number | null>(null);
+
+  // 使用useMemo记忆化PDF选项
+  const pdfOptions = useMemo(() => ({
+    cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/',
+    cMapPacked: true,
+    standardFontDataUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/standard_fonts/'
+  }), []); // 空依赖数组表示这个对象只会在组件首次渲染时创建
 
   // 异步轮询任务状态
   useEffect(() => {
@@ -551,7 +580,8 @@ const Homework: React.FC = () => {
       try {
         const studentData = processedArray[i];
         console.log(`处理第${i+1}个学生数据:`, typeof studentData);
-        const result = parseStudentResult(studentData);
+        // Pass the index to parseStudentResult
+        const result = parseStudentResult(studentData, i);
         results.push(result);
       } catch (e) {
         console.error(`解析第${i+1}个学生数据失败:`, e);
@@ -573,7 +603,7 @@ const Homework: React.FC = () => {
   };
 
   // 修改单个学生结果解析函数，确保只处理单个对象
-  const parseStudentResult = (data: any): StudentResult => {
+  const parseStudentResult = (data: any, index: number = 0): StudentResult => {
     // 如果传入的是数组，调用数组处理函数
     if (Array.isArray(data)) {
       console.warn('parseStudentResult收到了数组数据，应该使用parseStudentResults函数');
@@ -635,7 +665,39 @@ const Homework: React.FC = () => {
       }
       
       console.log(`解析完成: ${result.name}, 题目数: ${result.totalQuestions}, 正确数: ${result.correctCount}, 得分: ${result.score}`);
-      return result;
+      
+      // 使用后台返回的 pdfUrl 字段，如果存在的话
+      let pdfUrl = '';
+      if (data.pdfUrl) {
+        // 优先使用后台返回的 pdfUrl
+        pdfUrl = data.pdfUrl;
+        
+        // 确保 URL 包含正确的 API 前缀
+        if (!pdfUrl.startsWith('/api/files/') && !pdfUrl.startsWith('http')) {
+          // 检查是否已经有 / 前缀
+          if (!pdfUrl.startsWith('/')) {
+            pdfUrl = `/${pdfUrl}`;
+          }
+          // 添加 API 路径前缀
+          pdfUrl = `/api/files${pdfUrl}`;
+          console.log(`[PDF] Added API prefix to URL for student ${index + 1}: ${pdfUrl}`);
+        } else if (pdfUrl.startsWith('/api/file/')) {
+          // 修复错误的 API 路径
+          pdfUrl = pdfUrl.replace('/api/file/', '/api/files/');
+          console.log(`[PDF] Fixed API URL path from /api/file/ to /api/files/ for student ${index + 1}`);
+        }
+        
+        console.log(`[PDF] Using PDF URL from backend for student ${index + 1}: ${pdfUrl}`);
+      } else if (taskId) {
+        // 如果后台没有返回 pdfUrl，则使用本地逻辑构建 URL
+        pdfUrl = `/api/files/split/student_${index + 1}.pdf`;
+        console.log(`[PDF] Created local PDF URL for student ${index + 1}: ${pdfUrl} (TaskID: ${taskId})`);
+      }
+      
+      return {
+        ...result,
+        pdfUrl: pdfUrl, // Add the PDF URL
+      };
     } catch (error) {
       console.error('解析学生结果时出错:', error);
       return {
@@ -1029,33 +1091,51 @@ const Homework: React.FC = () => {
                 下载批改结果
               </Button>
             </div>
-            <Collapse 
-              onChange={(key) => setActiveKey(key)} 
-              activeKey={activeKey}
-              accordion={false}
-              items={studentResults.map((student, studentIndex) => ({
-                key: `student-${studentIndex}`,
-                label: (
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-                    <div>
-                      <span>{student.name}</span>
-                      {student.class && <span style={{ marginLeft: 8, color: '#8c8c8c' }}>({student.class})</span>} 
-                      <span style={{ marginLeft: 8 }}>- {student.score}</span>
+            
+            {/* 使用可折叠面板展示学生结果 */}
+            <Collapse defaultActiveKey={[]}>
+              {studentResults.map((student, studentIndex) => (
+                <Panel 
+                  key={`student-${studentIndex}`}
+                  header={
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                      <div>
+                        <span style={{ fontWeight: 'bold' }}>{student.name}</span>
+                        {student.class && <span style={{ marginLeft: 8, color: '#8c8c8c' }}>({student.class})</span>} 
+                        <span style={{ marginLeft: 8 }}>- 得分: {student.score}</span>
+                        <span style={{ marginLeft: 8, color: student.correctCount === student.totalQuestions ? '#52c41a' : '#1890ff' }}>
+                          ({student.correctCount}/{student.totalQuestions})
+                        </span>
+                      </div>
+                      <div onClick={e => e.stopPropagation()}>
+                        <Button 
+                          icon={<FilePdfOutlined />} 
+                          size="small"
+                          style={{ marginRight: 8 }}
+                          onClick={() => handleViewPdf(studentIndex)}
+                        >
+                          查看PDF
+                        </Button>
+                        <Button 
+                          icon={<EyeOutlined />} 
+                          size="small"
+                          style={{ marginRight: 8 }}
+                          onClick={() => handleViewSideBySide(studentIndex)}
+                        >
+                          对照视图
+                        </Button>
+                        <Button 
+                          icon={<EditOutlined />} 
+                          size="small" 
+                          onClick={() => handleEditStudent(studentIndex)}
+                        >
+                          编辑
+                        </Button>
+                      </div>
                     </div>
-                    <Button 
-                      icon={<EditOutlined />} 
-                      size="small" 
-                      onClick={(e) => {
-                        e.stopPropagation(); // 阻止冒泡，避免触发折叠面板的展开/收起
-                        handleEditStudent(studentIndex);
-                      }}
-                    >
-                      编辑学生信息
-                    </Button>
-                  </div>
-                ),
-                children: (
-                  <>
+                  }
+                >
+                  <Card bordered={false} style={{ marginBottom: '0' }}>
                     <div>
                       <Text strong>评分: </Text>
                       <Text>{student.score || '未评分'}</Text>
@@ -1075,7 +1155,9 @@ const Homework: React.FC = () => {
                     
                     {student.answers && student.answers.length > 0 && (
                       <div style={{ marginTop: 16 }}>
-                        <Text strong>答题详情: </Text>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                          <Text strong>答题详情: </Text>
+                        </div>
                         <List
                           size="small"
                           bordered
@@ -1124,10 +1206,17 @@ const Homework: React.FC = () => {
                         />
                       </div>
                     )}
-                  </>
-                )
-              }))}
-            />
+                  </Card>
+                </Panel>
+              ))}
+            </Collapse>
+          </div>
+        ) : (
+          <div>
+            <Paragraph>
+              未能解析学生结果，原始数据:
+              <pre style={{ maxHeight: '400px', overflow: 'auto' }}>{result}</pre>
+            </Paragraph>
             <div style={{ marginTop: 16, display: 'flex', gap: '10px' }}>
               <Button type="primary" onClick={() => {resetForm(); setDisplayResults(false);}} >
                 重新上传
@@ -1147,27 +1236,162 @@ const Homework: React.FC = () => {
               </Button>
             </div>
           </div>
-        ) : (
-          <div>
-            <Paragraph>
-              未能解析学生结果，原始数据:
-              <pre style={{ maxHeight: '400px', overflow: 'auto' }}>{result}</pre>
-            </Paragraph>
-            <div style={{ marginTop: 16, display: 'flex', gap: '10px' }}>
-              <Button type="primary" onClick={() => {resetForm(); setDisplayResults(false);}} >
-                重新上传
-              </Button>
-              {studentResults.length > 0 && (
-                <Button
-                  type="default"
-                  onClick={handleUploadMasterAnswers}
-                >
-                  设置标准答案
-                </Button>
-              )}
-            </div>
-          </div>
         )}
+        
+        {/* 对照视图模态窗口 - 移动至外层确保总是可见 */}
+        <Modal
+          title="答题详情与原文对照"
+          open={showSideBySide !== null}
+          onCancel={closeSideBySide}
+          width={1400}
+          style={{ top: 20 }}
+          footer={[
+            <Button 
+              key="openPdf" 
+              onClick={() => currentPdfUrl && openPdfDirectly(currentPdfUrl)}
+              style={{ marginRight: 8 }}
+            >
+              在浏览器中打开PDF
+            </Button>,
+            <Button key="close" onClick={closeSideBySide}>
+              关闭对照视图
+            </Button>
+          ]}
+        >
+          {showSideBySide !== null && (
+            <div>
+              <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <Text strong>当前PDF URL: </Text>
+                  <Text code>{currentPdfUrl}</Text>
+                </div>
+                <div>
+                  <Button 
+                    type="default" 
+                    icon={<FilePdfOutlined />}
+                    onClick={() => currentPdfUrl && openPdfDirectly(currentPdfUrl)}
+                  >
+                    在浏览器中打开
+                  </Button>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '16px' }}>
+                <div style={{ flex: '1 1 40%', maxHeight: '80vh', overflowY: 'auto' }}>
+                  {showSideBySide !== null && studentResults[showSideBySide]?.answers && (
+                    <List
+                      size="small"
+                      bordered
+                      dataSource={studentResults[showSideBySide].answers}
+                      renderItem={(answer: AnswerDetail, answerIndex: number) => (
+                        <List.Item>
+                          <div style={{ width: '100%' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <Text strong>题目 {answer.questionNumber}: </Text>
+                              <div>
+                                <Tag 
+                                  color={answer.isCorrect ? 'success' : 'error'}
+                                  onClick={() => toggleAnswerCorrectness(showSideBySide, answerIndex)}
+                                  style={{ cursor: 'pointer', marginRight: 8 }}
+                                >
+                                  {answer.isCorrect ? '正确' : '错误'} (点击修改)
+                                </Tag>
+                                <Button 
+                                  icon={<EditOutlined />} 
+                                  size="small" 
+                                  onClick={() => handleEditAnswer(showSideBySide, answerIndex)}
+                                >
+                                  编辑
+                                </Button>
+                              </div>
+                            </div>
+                            <div style={{ marginTop: 4 }}>
+                              <Text type="secondary">学生答案: </Text>
+                              <Text>{answer.studentAnswer}</Text>
+                            </div>
+                            {!answer.isCorrect && (
+                              <div style={{ marginTop: 4 }}>
+                                <Text type="secondary">正确答案: </Text>
+                                <Text type="success">{answer.correctAnswer}</Text>
+                              </div>
+                            )}
+                            {answer.explanation && (
+                              <div style={{ marginTop: 4 }}>
+                                <Text type="secondary">解释: </Text>
+                                <Text>{answer.explanation}</Text>
+                              </div>
+                            )}
+                          </div>
+                        </List.Item>
+                      )}
+                    />
+                  )}
+                </div>
+                <div style={{ flex: '1 1 60%', maxHeight: '80vh', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ flex: 1, display: 'flex', justifyContent: 'center', overflow: 'auto' }}>
+                    {currentPdfUrl ? (
+                      <div key={currentPdfUrl} style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
+                        <Document
+                          file={currentPdfUrl}
+                          onLoadSuccess={onDocumentLoadSuccess}
+                          onLoadProgress={(progress) => console.log(`[PDF] 加载进度: ${JSON.stringify(progress)}`)}
+                          loading={<Spin tip="PDF正在下载中，请等待..." />}
+                          onLoadError={(error) => {
+                            console.error('PDF加载错误:', error);
+                            console.error('PDF URL:', currentPdfUrl);
+                            // 更详细的错误信息
+                            if (error.name === 'MissingPDFException') {
+                              message.error(`PDF文件未找到。请确认服务器上是否存在该文件: ${currentPdfUrl}`);
+                            } else if (error.name === 'InvalidPDFException') {
+                              message.error(`无效的PDF文件格式: ${currentPdfUrl}`);
+                            } else if (error.name === 'UnexpectedResponseException') {
+                              message.error(`服务器响应异常: ${error.message}`);
+                            } else {
+                              message.error(`加载PDF文件失败 (${error.name}): ${error.message}`);
+                            }
+                            // 将错误信息记录到控制台，便于调试
+                            console.log('完整错误对象:', JSON.stringify(error, null, 2));
+                          }}
+                          options={pdfOptions}
+                          externalLinkTarget="_blank"
+                          renderMode="canvas"
+                        >
+                          <Page 
+                            pageNumber={currentPage} 
+                            scale={pdfScale}
+                            renderTextLayer={true}
+                            renderAnnotationLayer={true}
+                            error={<div>无法加载此页面，请尝试其他页面</div>}
+                            noData={<div>正在加载PDF...</div>}
+                            loading={<Spin tip="PDF正在加载中..." />}
+                          />
+                        </Document>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+                        <Spin tip="PDF加载中..." />
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ marginTop: 16, display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+                    <div>
+                      <Button onClick={previousPage} disabled={currentPage <= 1}>上一页</Button>
+                      <Button onClick={nextPage} disabled={currentPage >= (numPages || 1)} style={{ marginLeft: 8 }}>下一页</Button>
+                    </div>
+                    <div>
+                      <Text>{currentPage} / {numPages || 1}</Text>
+                    </div>
+                    <div>
+                      <Button onClick={() => setPdfScale(prevScale => Math.max(0.5, prevScale - 0.1))}>缩小</Button>
+                      <Button onClick={() => setPdfScale(1.0)} style={{ margin: '0 8px' }}>重置</Button>
+                      <Button onClick={() => setPdfScale(prevScale => Math.min(2.0, prevScale + 0.1))}>放大</Button>
+                      <Text style={{ marginLeft: 8 }}>{Math.round(pdfScale * 100)}%</Text>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </Modal>
       </div>
     );
   };
@@ -1508,8 +1732,177 @@ const Homework: React.FC = () => {
     });
   };
 
+  // Function to view student's PDF in a modal
+  const handleViewPdf = (studentIndex: number) => {
+    const student = studentResults[studentIndex];
+    if (student && student.pdfUrl) {
+      let pdfUrl = student.pdfUrl;
+      
+      // 确保 URL 包含正确的 API 前缀
+      if (!pdfUrl.startsWith('/api/files/') && !pdfUrl.startsWith('http')) {
+        // 检查是否已经有 / 前缀
+        if (!pdfUrl.startsWith('/')) {
+          pdfUrl = `/${pdfUrl}`;
+        }
+        // 添加 API 路径前缀
+        pdfUrl = `/api/files${pdfUrl}`;
+        console.log(`[PDF] Added API prefix to URL for modal view: ${pdfUrl}`);
+      } else if (pdfUrl.startsWith('/api/file/')) {
+        // 修复错误的 API 路径
+        pdfUrl = pdfUrl.replace('/api/file/', '/api/files/');
+        console.log(`[PDF] Fixed API URL path from /api/file/ to /api/files/ for modal view`);
+      }
+      
+      console.log(`[PDF] Loading PDF in modal for student ${studentIndex + 1}: ${pdfUrl}`);
+      
+      // Set state for the PDF viewer
+      setCurrentPdfUrl(pdfUrl);
+      setCurrentPage(1);
+      setIsPdfModalVisible(true);
+    } else {
+      message.error(`未找到学生${studentIndex + 1}的PDF文件`);
+      console.error(`[PDF] Missing PDF URL for student ${studentIndex + 1}`);
+    }
+  };
+
+  // Function to open PDF directly in a new tab
+  const openPdfDirectly = (pdfUrl: string) => {
+    // 确保 URL 包含正确的 API 前缀
+    if (!pdfUrl.startsWith('/api/files/') && !pdfUrl.startsWith('http')) {
+      // 检查是否已经有 / 前缀
+      if (!pdfUrl.startsWith('/')) {
+        pdfUrl = `/${pdfUrl}`;
+      }
+      // 添加 API 路径前缀
+      pdfUrl = `/api/files${pdfUrl}`;
+      console.log(`[PDF] Added API prefix to URL before opening in browser: ${pdfUrl}`);
+    } else if (pdfUrl.startsWith('/api/file/')) {
+      // 修复错误的 API 路径
+      pdfUrl = pdfUrl.replace('/api/file/', '/api/files/');
+      console.log(`[PDF] Fixed API URL path from /api/file/ to /api/files/ before opening in browser`);
+    }
+    
+    console.log(`[PDF] Opening PDF directly in browser: ${pdfUrl}`);
+    // Open PDF in a new tab
+    window.open(pdfUrl, '_blank');
+  };
+
+  // Function to view student's PDF alongside answers
+  const handleViewSideBySide = (studentIndex: number) => {
+    const student = studentResults[studentIndex];
+    console.log(`[DEBUG] 打开对照视图，学生索引: ${studentIndex}`, student);
+    console.log(`[DEBUG] 学生数组长度: ${studentResults.length}`);
+    console.log(`[DEBUG] studentResults 数据类型: ${typeof studentResults}`);
+    
+    if (student && student.pdfUrl) {
+      let pdfUrl = student.pdfUrl;
+      console.log(`[DEBUG] 原始 PDF URL: ${pdfUrl}`);
+      
+      // 确保 URL 包含正确的 API 前缀
+      if (!pdfUrl.startsWith('/api/files/') && !pdfUrl.startsWith('http')) {
+        // 检查是否已经有 / 前缀
+        if (!pdfUrl.startsWith('/')) {
+          pdfUrl = `/${pdfUrl}`;
+        }
+        // 添加 API 路径前缀
+        pdfUrl = `/api/files${pdfUrl}`;
+        console.log(`[PDF] Added API prefix to URL for side-by-side view: ${pdfUrl}`);
+      } else if (pdfUrl.startsWith('/api/file/')) {
+        // 修复错误的 API 路径
+        pdfUrl = pdfUrl.replace('/api/file/', '/api/files/');
+        console.log(`[PDF] Fixed API URL path from /api/file/ to /api/files/ for side-by-side view`);
+      }
+      
+      console.log(`[PDF] Loading side-by-side PDF for student ${studentIndex + 1}: ${pdfUrl}`);
+      
+      // 检查Modal和PDF相关状态
+      console.log(`[DEBUG] 当前Modal状态: showSideBySide=${showSideBySide}, currentPdfUrl=${currentPdfUrl}`);
+      
+      // 在设置状态前添加日志
+      console.log(`[DEBUG] 设置状态: setCurrentPdfUrl(${pdfUrl}), setShowSideBySide(${studentIndex})`);
+      
+      // 直接设置状态，与handleViewPdf保持一致
+      setCurrentPdfUrl(pdfUrl);
+      setCurrentPage(1);
+      setShowSideBySide(studentIndex);
+      
+      // 状态设置后添加确认日志
+      console.log(`[DEBUG] 状态已设置，确认Modal应该显示 (showSideBySide=${studentIndex})`);
+      
+      // 尝试主动获取PDF以验证URL是否有效
+      fetch(pdfUrl, { method: 'Get' })
+        .then(response => {
+          console.log(`[DEBUG] PDF URL 检查结果: ${response.status} ${response.statusText}`, response);
+          if (!response.ok) {
+            console.error(`[DEBUG] PDF URL 无效: ${pdfUrl}`);
+            message.error(`PDF URL 无效 (${response.status}): ${pdfUrl}`);
+          } else {
+            console.log(`[DEBUG] PDF URL 有效: ${pdfUrl}`);
+          }
+        })
+        .catch(error => {
+          console.error(`[DEBUG] 检查PDF URL时出错:`, error);
+          message.error(`检查PDF URL时出错: ${error.message}`);
+        });
+    } else {
+      message.error(`未找到学生${studentIndex + 1}的PDF文件`);
+      console.error(`[PDF] Missing PDF URL for student ${studentIndex + 1}`);
+    }
+  };
+
+  // Close the side-by-side view
+  const closeSideBySide = () => {
+    setShowSideBySide(null);
+    setCurrentPdfUrl(null);
+  };
+
+  // Handle document load success
+  const onDocumentLoadSuccess = ({ numPages }: { numPages: number }) => {
+    console.log(`[PDF] PDF loaded successfully with ${numPages} pages`);
+    setNumPages(numPages);
+  };
+
+  // Handle page changes
+  const changePage = (offset: number) => {
+    setCurrentPage(prevPageNumber => {
+      const newPage = (prevPageNumber || 1) + offset;
+      return Math.max(1, Math.min(newPage, numPages || 1));
+    });
+  };
+
+  const previousPage = () => changePage(-1);
+  const nextPage = () => changePage(1);
+
+  // 添加useEffect来确保表单实例与表单组件正确连接
+  useEffect(() => {
+    // 如果Edit Modal关闭了，重置相关状态
+    if (!isEditModalVisible) {
+      setEditingStudentIndex(null);
+      setEditingAnswerIndex(null);
+    }
+  }, [isEditModalVisible]);
+
+  // 同样处理学生编辑表单
+  useEffect(() => {
+    if (!isStudentEditModalVisible) {
+      setEditingStudentIndex(null);
+    }
+  }, [isStudentEditModalVisible]);
+
+  // 处理主答案表单
+  useEffect(() => {
+    if (!isMasterAnswersModalVisible) {
+      // 表单关闭后可能需要的清理操作
+    }
+  }, [isMasterAnswersModalVisible]);
+
   return (
-    <div style={{ maxWidth: 800, margin: '0 auto', padding: '24px' }}>
+    <div style={{ 
+      maxWidth: '95%', 
+      width: '1400px', 
+      margin: '0 auto', 
+      padding: '24px' 
+    }}>
       <Card>
         <Title level={2}>作业上传与批改</Title>
         <Paragraph>
@@ -1702,6 +2095,86 @@ const Homework: React.FC = () => {
             ))
           }
         </Form>
+      </Modal>
+
+      {/* PDF Viewer Modal */}
+      <Modal
+        title="查看作业"
+        open={isPdfModalVisible}
+        onCancel={() => setIsPdfModalVisible(false)}
+        width={1200}
+        style={{ top: 20 }}
+        footer={[
+          <Button key="direct" onClick={() => currentPdfUrl && openPdfDirectly(currentPdfUrl)} type="primary">
+            在浏览器中直接打开
+          </Button>,
+          <Button key="close" onClick={() => setIsPdfModalVisible(false)}>
+            关闭
+          </Button>
+        ]}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', height: '70vh' }}>
+          <div style={{ overflow: 'auto', height: '100%', width: '100%', display: 'flex', justifyContent: 'center' }}>
+            {currentPdfUrl ? (
+              <div key={currentPdfUrl} style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
+                <Document
+                  file={currentPdfUrl}
+                  onLoadSuccess={onDocumentLoadSuccess}
+                  onLoadProgress={(progress) => console.log(`[PDF] 加载进度: ${JSON.stringify(progress)}`)}
+                  loading={<Spin tip="PDF正在下载中，请等待..." />}
+                  onLoadError={(error) => {
+                    console.error('PDF加载错误:', error);
+                    console.error('PDF URL:', currentPdfUrl);
+                    // 更详细的错误信息
+                    if (error.name === 'MissingPDFException') {
+                      message.error(`PDF文件未找到。请确认服务器上是否存在该文件: ${currentPdfUrl}`);
+                    } else if (error.name === 'InvalidPDFException') {
+                      message.error(`无效的PDF文件格式: ${currentPdfUrl}`);
+                    } else if (error.name === 'UnexpectedResponseException') {
+                      message.error(`服务器响应异常: ${error.message}`);
+                    } else {
+                      message.error(`加载PDF文件失败 (${error.name}): ${error.message}`);
+                    }
+                    // 将错误信息记录到控制台，便于调试
+                    console.log('完整错误对象:', JSON.stringify(error, null, 2));
+                  }}
+                  options={pdfOptions}
+                  externalLinkTarget="_blank"
+                  renderMode="canvas"
+                >
+                  <Page 
+                    pageNumber={currentPage} 
+                    scale={pdfScale}
+                    renderTextLayer={true}
+                    renderAnnotationLayer={true}
+                    error={<div>无法加载此页面，请尝试其他页面</div>}
+                    noData={<div>正在加载PDF...</div>}
+                    loading={<Spin tip="PDF正在加载中..." />}
+                  />
+                </Document>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+                <Spin tip="PDF加载中..." />
+              </div>
+            )}
+          </div>
+          <div style={{ marginTop: 16, display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+            <div>
+              <Button onClick={previousPage} disabled={currentPage <= 1}>上一页</Button>
+              <Button onClick={nextPage} disabled={currentPage >= (numPages || 1)} style={{ marginLeft: 8 }}>下一页</Button>
+            </div>
+            <div>
+              <Text>{currentPage} / {numPages || 1}</Text>
+            </div>
+            <div>
+              <Button onClick={() => setPdfScale(prevScale => Math.max(0.5, prevScale - 0.1))}>缩小</Button>
+              <Button onClick={() => setPdfScale(1.0)} style={{ margin: '0 8px' }}>重置</Button>
+              <Button onClick={() => setPdfScale(prevScale => Math.min(2.0, prevScale + 0.1))}>放大</Button>
+              <Text style={{ marginLeft: 8 }}>{Math.round(pdfScale * 100)}%</Text>
+            </div>
+          </div>
+        </div>
       </Modal>
     </div>
   );
