@@ -673,24 +673,24 @@ const Homework: React.FC = () => {
         pdfUrl = data.pdfUrl;
         
         // 确保 URL 包含正确的 API 前缀
-        if (!pdfUrl.startsWith('api/files/') && !pdfUrl.startsWith('http')) {
+        if (!pdfUrl.startsWith('/api/files/') && !pdfUrl.startsWith('http')) {
           // 检查是否已经有 / 前缀
           if (!pdfUrl.startsWith('/')) {
             pdfUrl = `/${pdfUrl}`;
           }
           // 添加 API 路径前缀
-          pdfUrl = `api/files${pdfUrl}`;
+          pdfUrl = `/api/files${pdfUrl}`;
           console.log(`[PDF] Added API prefix to URL for student ${index + 1}: ${pdfUrl}`);
         } else if (pdfUrl.startsWith('/api/file/')) {
           // 修复错误的 API 路径
-          pdfUrl = pdfUrl.replace('/api/file/', 'api/files/');
-          console.log(`[PDF] Fixed API URL path from /api/file/ to api/files/ for student ${index + 1}`);
+          pdfUrl = pdfUrl.replace('/api/file/', '/api/files/');
+          console.log(`[PDF] Fixed API URL path from /api/file/ to /api/files/ for student ${index + 1}`);
         }
         
         console.log(`[PDF] Using PDF URL from backend for student ${index + 1}: ${pdfUrl}`);
       } else if (taskId) {
         // 如果后台没有返回 pdfUrl，则使用本地逻辑构建 URL
-        pdfUrl = `api/files/split/student_${index + 1}.pdf`;
+        pdfUrl = `/api/files/split/student_${index + 1}.pdf`;
         console.log(`[PDF] Created local PDF URL for student ${index + 1}: ${pdfUrl} (TaskID: ${taskId})`);
       }
       
@@ -1739,18 +1739,18 @@ const Homework: React.FC = () => {
       let pdfUrl = student.pdfUrl;
       
       // 确保 URL 包含正确的 API 前缀
-      if (!pdfUrl.startsWith('api/files/') && !pdfUrl.startsWith('http')) {
+      if (!pdfUrl.startsWith('/api/files/') && !pdfUrl.startsWith('http')) {
         // 检查是否已经有 / 前缀
         if (!pdfUrl.startsWith('/')) {
           pdfUrl = `/${pdfUrl}`;
         }
         // 添加 API 路径前缀
-        pdfUrl = `api/files${pdfUrl}`;
+        pdfUrl = `/api/files${pdfUrl}`;
         console.log(`[PDF] Added API prefix to URL for modal view: ${pdfUrl}`);
       } else if (pdfUrl.startsWith('/api/file/')) {
         // 修复错误的 API 路径
-        pdfUrl = pdfUrl.replace('/api/file/', 'api/files/');
-        console.log(`[PDF] Fixed API URL path from /api/file/ to api/files/ for modal view`);
+        pdfUrl = pdfUrl.replace('/api/file/', '/api/files/');
+        console.log(`[PDF] Fixed API URL path from /api/file/ to /api/files/ for modal view`);
       }
       
       // 添加环境变量前缀，确保使用完整URL
@@ -1774,18 +1774,18 @@ const Homework: React.FC = () => {
   // Function to open PDF directly in a new tab
   const openPdfDirectly = (pdfUrl: string) => {
     // 确保 URL 包含正确的 API 前缀
-    if (!pdfUrl.startsWith('api/files/') && !pdfUrl.startsWith('http')) {
+    if (!pdfUrl.startsWith('/api/files/') && !pdfUrl.startsWith('http')) {
       // 检查是否已经有 / 前缀
       if (!pdfUrl.startsWith('/')) {
         pdfUrl = `/${pdfUrl}`;
       }
       // 添加 API 路径前缀
-      pdfUrl = `api/files${pdfUrl}`;
+      pdfUrl = `/api/files${pdfUrl}`;
       console.log(`[PDF] Added API prefix to URL before opening in browser: ${pdfUrl}`);
     } else if (pdfUrl.startsWith('/api/file/')) {
       // 修复错误的 API 路径
-      pdfUrl = pdfUrl.replace('/api/file/', 'api/files/');
-      console.log(`[PDF] Fixed API URL path from /api/file/ to api/files/ before opening in browser`);
+      pdfUrl = pdfUrl.replace('/api/file/', '/api/files/');
+      console.log(`[PDF] Fixed API URL path from /api/file/ to /api/files/ before opening in browser`);
     }
     
     // 添加环境变量前缀，确保使用完整URL
@@ -1811,18 +1811,18 @@ const Homework: React.FC = () => {
       console.log(`[DEBUG] 原始 PDF URL: ${pdfUrl}`);
       
       // 确保 URL 包含正确的 API 前缀
-      if (!pdfUrl.startsWith('api/files/') && !pdfUrl.startsWith('http')) {
+      if (!pdfUrl.startsWith('/api/files/') && !pdfUrl.startsWith('http')) {
         // 检查是否已经有 / 前缀
         if (!pdfUrl.startsWith('/')) {
           pdfUrl = `/${pdfUrl}`;
         }
         // 添加 API 路径前缀
-        pdfUrl = `api/files${pdfUrl}`;
+        pdfUrl = `/api/files${pdfUrl}`;
         console.log(`[PDF] Added API prefix to URL for side-by-side view: ${pdfUrl}`);
       } else if (pdfUrl.startsWith('/api/file/')) {
         // 修复错误的 API 路径
-        pdfUrl = pdfUrl.replace('/api/file/', 'api/files/');
-        console.log(`[PDF] Fixed API URL path from /api/file/ to api/files/ for side-by-side view`);
+        pdfUrl = pdfUrl.replace('/api/file/', '/api/files/');
+        console.log(`[PDF] Fixed API URL path from /api/file/ to /api/files/ for side-by-side view`);
       }
       
       // 添加环境变量前缀，确保使用完整URL
