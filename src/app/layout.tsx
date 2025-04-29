@@ -41,7 +41,7 @@ export default function RootLayout({
           <div className="container mx-auto px-4">
             <div className="flex flex-col md:flex-row justify-between">
               <div className="mb-4 md:mb-0">
-                <p className="text-sm dark:text-gray-200">&copy; {new Date().getFullYear()} 作业批改助手 - 由Gemini 2.0 Thinking模型提供支持</p>
+                <p className="text-sm dark:text-gray-200">&copy; {new Date().getFullYear()} 作业批改助手 - 由大模型提供支持</p>
               </div>
               <div className="flex">
                 <a href="#" className="text-gray-300 hover:text-white dark:text-gray-300 dark:hover:text-white mr-4">
