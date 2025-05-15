@@ -23,11 +23,12 @@ func SetupRouter(geminiService *services.GeminiService) *gin.Engine {
 
 	// 配置CORS
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"*"},
+		AllowOrigins:     []string{"https://aiexammark.o3-tools.com", "https://exammark.o3-tools.com", "http://localhost:3000"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Length", "Content-Type", "Authorization"},
-		ExposeHeaders:    []string{"Content-Length"},
-		AllowCredentials: false, // 当AllowOrigins为*时，必须设为false
+		AllowHeaders:     []string{"Origin", "Content-Length", "Content-Type", "Authorization", "Accept", "X-Requested-With"},
+		ExposeHeaders:    []string{"Content-Length", "Content-Type", "Access-Control-Allow-Origin", "Access-Control-Allow-Headers"},
+		AllowCredentials: true,
+		AllowWildcard:    true,
 		MaxAge:           12 * time.Hour,
 	}))
 
